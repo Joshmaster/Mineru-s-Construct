@@ -9,12 +9,7 @@ jobs:
   deploy:
     runs-on: [self-hosted, hyrule]
     steps:
-      - uses: actions/checkout@v4
-        with:
-          path: ~/Agents
-          clean: false
-
-      - name: Gerar hyrule_env.py e iniciar serviços
+      - name: Gerar hyrule_env.py com secrets
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
           OPENROUTER_KEY_1: ${{ secrets.OPENROUTER_KEY_1 }}
