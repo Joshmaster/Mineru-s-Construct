@@ -1,0 +1,79 @@
+# ── Credenciais — NUNCA commitar ─────────────────────────────────────────────
+hyrule_env.py
+*.env
+.env*
+
+# ── Sessoes WhatsApp ──────────────────────────────────────────────────────────
+link-bot/.linkbot/session.sqlite
+link-bot/.linkbot/test*.sqlite
+link-bot/.linkbot/data.db
+link-bot/.linkbot/qr.png
+link-bot/.whatsapp_pid
+
+# ── Estado de runtime ─────────────────────────────────────────────────────────
+claude_queue.json
+pedidos_vistos.json
+nav_state.json
+token_usage.json
+token_usage.log
+.triforce_daemon_pid
+DISCORD/.bot_pid
+DISCORD/.supervisor_pid
+
+# ── Logs ──────────────────────────────────────────────────────────────────────
+*.log
+DISCORD/discord.log
+DISCORD/supervisor_out.log
+DISCORD/bot_error.log
+triforce_daemon.log
+link-bot/.linkbot/whatsapp.log
+link-bot/.linkbot/whatsapp_err.log
+
+# ── Historico e sessoes de conversas ─────────────────────────────────────────
+DISCORD/history/
+triforce_history/
+triforce_raw.txt
+TRIFORCE_SESSION/
+DISCORD/user_context.json
+DISCORD/received/
+DISCORD/received_files.json
+
+# ── Python ───────────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# ── Claude Code (binario, dados e historico) ─────────────────────────────────
+CLAUDE CODE/bin/
+CLAUDE CODE/global/bin/
+CLAUDE CODE/share/
+CLAUDE CODE/global/.credentials.json
+CLAUDE CODE/.proxy_session.json
+CLAUDE CODE/global/.proxy_session.json
+CLAUDE CODE/global/projects/
+CLAUDE CODE/global/.claude/settings.local.json
+CLAUDE CODE/global/backups/
+CLAUDE CODE/global/conversation_history.json
+CLAUDE CODE/global/file-history/
+CLAUDE CODE/global/cache/
+CLAUDE CODE/global/history.jsonl
+CLAUDE CODE/global/paste-cache/
+CLAUDE CODE/global/memory/
+CLAUDE CODE/global/settings.local.json
+CLAUDE CODE/global/plans/
+CLAUDE CODE/global/mcp-needs-auth-cache.json
+CLAUDE CODE/global/plugins/
+CLAUDE CODE/global/universal_agent.py
+CLAUDE CODE/universal_agent.py
+CLAUDE CODE/ollama_fallback.py
+
+# ── OpenCode (binario e dados de sessao) ─────────────────────────────────────
+OPENCODE/bin/
+OPENCODE/cache/
+OPENCODE/data/
+OPENCODE/state/
+
+# ── Temporarios ──────────────────────────────────────────────────────────────
+tmp_ajuda.txt
+triforce_raw.txt

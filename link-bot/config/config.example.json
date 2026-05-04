@@ -1,0 +1,16 @@
+{
+  "_comentario": "Config do Link Bot. Edite ALLOW_FROM com seu número (formato 5511999999999, sem + ou espaços). ENABLE_PC_CONTROL liga/desliga skills de PC.",
+
+  "MODE": "TOTK puro (sem LLM)",
+
+  "ALLOW_FROM": [
+    "5511999999999"
+  ],
+
+  "STORAGE_PATH": "${HOME}/.linkbot/data.db",
+  "SESSION_PATH": "${HOME}/.linkbot/session.sqlite",
+
+  "ENABLE_PC_CONTROL": false,
+
+  "_comentario_pc": "ENABLE_PC_CONTROL: false = skills de PC desativadas. Pra ligar, mude pra true e reinicie o bot. Cuidado: liga só se você confia 100% nos números da ALLOW_FROM."
+}
