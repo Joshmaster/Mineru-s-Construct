@@ -1,0 +1,31 @@
+name: Deploy Hyrule
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main, master]
+
+jobs:
+  deploy:
+    runs-on: [self-hosted, hyrule]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: ~/Agents
+          clean: false
+
+      - name: Gerar hyrule_env.py e iniciar serviços
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          OPENROUTER_KEY_1: ${{ secrets.OPENROUTER_KEY_1 }}
+          OPENROUTER_KEY_2: ${{ secrets.OPENROUTER_KEY_2 }}
+          OPENROUTER_KEY_3: ${{ secrets.OPENROUTER_KEY_3 }}
+          GROQ_KEY_1: ${{ secrets.GROQ_KEY_1 }}
+          GROQ_KEY_2: ${{ secrets.GROQ_KEY_2 }}
+          WA_OWNER: ${{ secrets.WA_OWNER }}
+          WA_ALLOW_FROM: ${{ secrets.WA_ALLOW_FROM }}
+          SKIP_DEPS: "1"
+        run: |
+          cd ~/Agents
+          bash setup.sh
+          echo "hyrule_env.py gerado com sucesso"
