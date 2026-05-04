@@ -3,6 +3,33 @@
 Bot Discord (Link) + Bot WhatsApp integrados a um supervisor de LLMs com hierarquia de fallback automático: OpenRouter → Groq → Ollama local. Inclui daemon Triforce para fila de pedidos via Discord/WhatsApp e gerenciador de serviços unificado.
 
 **Dono:** OWNER (`OWNER_EMAIL`)  
+
+---
+
+## Início rápido — SSH → Claude Code
+
+Após conectar via SSH, execute:
+
+```bash
+cd ~/Agents && claude
+```
+
+Isso carrega automaticamente:
+- `CLAUDE.md` — identidade, regras e hierarquia de LLMs
+- `.claude/memory/` — arquitetura do Hyrule, rotinas, feedbacks
+- `.claude/settings.local.json` — permissões
+
+O Claude Code acorda com contexto completo do projeto. Se quiser retomar o estado da sessão anterior, diga **"claude link"**.
+
+Para adicionar o atalho permanente no shell:
+
+```bash
+echo "alias hyrule='cd ~/Agents && claude'" >> ~/.bashrc && source ~/.bashrc
+```
+
+Depois é só digitar `hyrule` para abrir.
+
+---
 **Servidor alvo:** Ubuntu Server 24.04 LTS  
 **Repo:** https://github.com/OWNERmaster/Mineru-s-Construct
 
