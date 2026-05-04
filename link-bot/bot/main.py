@@ -180,7 +180,12 @@ class LinkBot:
                 pass
             # Abre a imagem automaticamente
             try:
-                os.startfile(qr_path)
+                if sys.platform == "win32":
+                    os.startfile(qr_path)
+                else:
+                    import subprocess as _sp
+                    _sp.Popen(["xdg-open", qr_path],
+                              stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
             except Exception:
                 pass
 

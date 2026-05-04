@@ -20,7 +20,13 @@ if sys.platform == "win32":
 BASE         = Path(__file__).parent
 CLAUDE_QUEUE = BASE / "claude_queue.json"
 HISTORY_DIR  = BASE / "triforce_history"
-CLAUDE_EXE   = BASE / "CLAUDE CODE" / "bin" / "claude.exe"
+
+if sys.platform == "win32":
+    CLAUDE_EXE = BASE / "CLAUDE CODE" / "bin" / "claude.exe"
+else:
+    import shutil as _shutil
+    _which = _shutil.which("claude")
+    CLAUDE_EXE = Path(_which) if _which else Path("/usr/local/bin/claude")
 HOME_DIR     = Path.home()          # cwd da sessao interativa ativa
 BOT_API      = "http://localhost:7331"
 WA_API       = "http://localhost:7332"

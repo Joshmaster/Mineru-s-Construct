@@ -1,16 +1,18 @@
-# Hyrule — Guia Completo de Instalação e Restauração
+# Hyrule — Guia de Instalação (Ubuntu Server 24.04 LTS)
 
 Sistema de bots e automação pessoal: bot Discord (Link), bot WhatsApp, supervisor de LLMs, Triforce daemon e proxy para Claude Code.
 
+> Funciona também no Windows — veja a seção [Windows](#windows-referência-rápida) no final.
+
 ---
 
-## Arquitetura Resumida
+## Arquitetura
 
 ```
-Agents/
+~/Agents/
 ├── startup_services.py       ← gerencia todos os serviços (start/stop/restart/status)
 ├── bot_supervisor.py         ← supervisor Discord + roteamento de LLMs
-├── triforce_daemon.py        ← fila de pedidos OWNER ↔ Claude Code via Discord/WhatsApp
+├── triforce_daemon.py        ← fila de pedidos via Discord/WhatsApp → Claude Code
 ├── link_console.py           ← console interativo local
 ├── hyrule_env.py             ← CREDENCIAIS (não vai pro git — copie do .example)
 ├── hyrule_env.example.py     ← template de credenciais
@@ -21,118 +23,102 @@ Agents/
 ├── link-bot/                 ← bot WhatsApp (HTTP API porta 7332)
 │   ├── bot/main.py
 │   ├── bot/core/             ← llm, router, storage, scheduler
-│   ├── bot/skills/           ← skills: clima, cep, cotacao, lembretes, etc.
-│   └── config/config.json    ← configuração WhatsApp (numero dono, allow list)
+│   ├── bot/skills/           ← clima, cep, cotacao, lembretes, etc.
+│   └── config/config.json    ← número dono + allow list
 │
 └── CLAUDE CODE/
-    └── global/proxy.py       ← proxy Hyrule (intercepta Claude Code → redireciona para Ollama/OpenRouter)
+    └── global/proxy.py       ← proxy (Claude Code → Ollama/OpenRouter)
 ```
 
-### Fluxo de LLMs (hierarquia de custo)
+### Hierarquia de LLMs (custo crescente)
 
 ```
-OpenRouter (gpt-oss free)   → 1a tentativa
-      ↓ falhou (429 / erro)
-Groq (llama/kimi)           → 0.3s latência, free tier
-      ↓ falhou
-Ollama qwen2.5:1.5b         → LOCAL, zero custo, ~7s CPU
-      ↓ falhou
-Claude Code (sessão ativa)  → último recurso
+OpenRouter (free)  →  Groq (free)  →  Ollama local  →  Claude Code (sessão)
 ```
 
 ---
 
-## Pré-requisitos
+## 1. Atualizar sistema e instalar dependências base
 
-- **Windows 10/11** (ou Linux com pequenas adaptações nos paths)
-- **Python 3.12+** → https://www.python.org/downloads/
-- **Git** → https://git-scm.com/download/win
-- **Ollama** → https://ollama.com/download
+```bash
+sudo apt update && sudo apt upgrade -y
+sudo apt install -y python3 python3-pip python3-venv git curl wget \
+                    libgomp1 ffmpeg xdg-utils
+```
 
 ---
 
-## 1. Instalar Ollama e baixar modelo local
+## 2. Instalar Ollama
 
-```powershell
-# Instale o Ollama pelo site acima, depois:
+```bash
+curl -fsSL https://ollama.com/install.sh | sh
+
+# Habilitar como serviço systemd
+sudo systemctl enable ollama
+sudo systemctl start ollama
+
+# Baixar modelo local
 ollama pull qwen2.5:1.5b
-```
 
-Verifique: `ollama list` deve mostrar `qwen2.5:1.5b`.
-
----
-
-## 2. Clonar o repositório
-
-```powershell
-git clone https://github.com/SEU_USUARIO/hyrule.git "C:\Users\SEU_USUARIO\Agents"
-cd "C:\Users\SEU_USUARIO\Agents"
+# Verificar
+ollama list
 ```
 
 ---
 
-## 3. Instalar dependências Python
+## 3. Instalar Claude Code CLI
 
-```powershell
-# Dependências principais
-pip install discord.py aiohttp requests flask
+```bash
+# Via npm (requer Node.js)
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo npm install -g @anthropic-ai/claude-code
 
-# Bot WhatsApp
-pip install neonize qrcode httpx segno
-
-# Verificar instalação
-pip list | Select-String "discord|aiohttp|neonize|qrcode|requests|flask"
+# Verificar
+claude --version
 ```
 
 ---
 
-## 4. Configurar credenciais
+## 4. Clonar o repositório
 
-```powershell
-copy hyrule_env.example.py hyrule_env.py
-notepad hyrule_env.py
+```bash
+git clone https://github.com/OWNERmaster/Mineru-s-Construct.git ~/Agents
+cd ~/Agents
 ```
 
-Preencha no arquivo:
+---
 
-| Variável | Onde obter |
+## 5. Instalar dependências Python
+
+```bash
+pip3 install discord.py aiohttp requests flask neonize qrcode httpx segno
+```
+
+---
+
+## 6. Configurar credenciais
+
+```bash
+cp ~/Agents/hyrule_env.example.py ~/Agents/hyrule_env.py
+nano ~/Agents/hyrule_env.py
+```
+
+Preencha:
+
+| Campo | Onde obter |
 |---|---|
 | `DISCORD_TOKEN` | discord.com/developers → Bot → Reset Token |
-| `OPENROUTER_KEYS` | openrouter.ai/keys (free tier disponível) |
-| `GROQ_KEYS` | console.groq.com/keys (free tier disponível) |
-| `WA_OWNER` | Seu número com DDI, sem + (ex: `5537999990000`) |
+| `OPENROUTER_KEYS` | openrouter.ai/keys (free tier) |
+| `GROQ_KEYS` | console.groq.com/keys (free tier) |
+| `WA_OWNER` | Seu número com DDI sem + (ex: `5537999990000`) |
 | `WA_ALLOW_FROM` | Lista de números autorizados |
 
 ---
 
-## 5. Configurar bot WhatsApp
+## 7. Configurar bot Discord
 
-Edite `link-bot/config/config.json`:
-
-```json
-{
-  "MODE": "TOTK + LLM fallback",
-  "OWNER": "SEU_NUMERO_COM_DDI",
-  "ALLOW_FROM": ["SEU_NUMERO_COM_DDI"],
-  "STORAGE_PATH": "C:/Users/SEU_USUARIO/Agents/link-bot/.linkbot/data.db",
-  "SESSION_PATH": "C:/Users/SEU_USUARIO/Agents/link-bot/.linkbot/session.sqlite",
-  "ENABLE_PC_CONTROL": true
-}
-```
-
-> Troque `SEU_USUARIO` pelo nome do usuário Windows no novo servidor.
-
----
-
-## 6. Configurar bot Discord
-
-No Discord Developer Portal:
-1. Crie uma aplicação em https://discord.com/developers/applications
-2. Vá em Bot → ative **Message Content Intent**, **Server Members Intent**, **Presence Intent**
-3. Copie o token para `hyrule_env.py`
-4. Invite link: `https://discord.com/api/oauth2/authorize?client_id=SEU_CLIENT_ID&permissions=8&scope=bot`
-
-Em `DISCORD/link_discord.py`, confirme os IDs dos usuários no dict `USUARIOS`:
+Em `DISCORD/link_discord.py`, confirme os IDs dos usuários:
 ```python
 USUARIOS = {
     "OWNER": SEU_DISCORD_USER_ID,
@@ -140,125 +126,150 @@ USUARIOS = {
 }
 ```
 
----
-
-## 7. Primeiro pareamento WhatsApp
-
-Na primeira execução o bot vai gerar um QR code:
-
-```powershell
-cd "C:\Users\SEU_USUARIO\Agents\link-bot"
-python -m bot.main
-```
-
-Escaneie o QR com o WhatsApp no celular (Configurações → Dispositivos conectados → Conectar dispositivo).
-
-Após parear, pare o processo (`Ctrl+C`) — a sessão fica salva em `.linkbot/session.sqlite`.
+No Discord Developer Portal:
+1. Ative **Message Content Intent**, **Server Members Intent**, **Presence Intent**
+2. Invite: `https://discord.com/api/oauth2/authorize?client_id=SEU_CLIENT_ID&permissions=8&scope=bot`
 
 ---
 
-## 8. Iniciar todos os serviços
+## 8. Configurar bot WhatsApp
 
-```powershell
-cd "C:\Users\SEU_USUARIO\Agents"
-python startup_services.py start
+Edite `link-bot/config/config.json`:
+```json
+{
+  "MODE": "TOTK + LLM fallback",
+  "OWNER": "SEU_NUMERO_COM_DDI",
+  "ALLOW_FROM": ["SEU_NUMERO_COM_DDI"],
+  "STORAGE_PATH": ".linkbot/data.db",
+  "SESSION_PATH": ".linkbot/session.sqlite",
+  "ENABLE_PC_CONTROL": true
+}
 ```
 
-Para verificar status:
-```powershell
-python startup_services.py status
+### Primeiro pareamento (gera QR)
+
+```bash
+cd ~/Agents/link-bot
+python3 -m bot.main
 ```
 
-Para reiniciar tudo (limpa histórico):
-```powershell
-python startup_services.py restart
+O QR é salvo em `.linkbot/qr.png`. Para visualizar via SSH:
+```bash
+# Opção 1 — copiar para sua máquina
+scp usuario@servidor:~/Agents/link-bot/.linkbot/qr.png ~/Desktop/
+
+# Opção 2 — ver no terminal (ASCII)
+# O bot já tenta exibir automaticamente via segno
+```
+
+Escaneie com WhatsApp → **Configurações → Dispositivos conectados → Conectar dispositivo**.  
+Após parear, pare com `Ctrl+C` — sessão salva em `.linkbot/session.sqlite`.
+
+---
+
+## 9. Iniciar todos os serviços
+
+```bash
+cd ~/Agents
+python3 startup_services.py start
+```
+
+Comandos disponíveis:
+```bash
+python3 startup_services.py status      # ver estado de cada serviço
+python3 startup_services.py restart     # parar tudo + limpar histórico + reiniciar
+python3 startup_services.py stop        # parar tudo
+python3 startup_services.py restart-nolimp  # reiniciar sem limpar histórico
 ```
 
 ---
 
-## 9. Autostart no boot (opcional — Windows)
+## 10. Autostart com systemd
 
-Crie um arquivo `link.bat` na pasta `Agents/` (já existe no repo):
-```batch
-@echo off
-cd /d "%~dp0"
-python startup_services.py start
+Crie o serviço:
+```bash
+sudo nano /etc/systemd/system/hyrule.service
 ```
 
-Adicione ao Task Scheduler para rodar no login:
-1. Abra `taskschd.msc`
-2. Criar tarefa básica → "Hyrule Boot"
-3. Gatilho: "Quando fizer logon"
-4. Ação: Iniciar programa → `C:\Users\SEU_USUARIO\Agents\link.bat`
+Conteúdo (ajuste o usuário):
+```ini
+[Unit]
+Description=Hyrule Bot System
+After=network.target ollama.service
+
+[Service]
+Type=simple
+User=SEU_USUARIO
+WorkingDirectory=/home/SEU_USUARIO/Agents
+ExecStart=/usr/bin/python3 /home/SEU_USUARIO/Agents/startup_services.py start
+ExecStop=/usr/bin/python3 /home/SEU_USUARIO/Agents/startup_services.py stop
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Ativar:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable hyrule
+sudo systemctl start hyrule
+sudo systemctl status hyrule
+```
 
 ---
 
-## 10. Proxy Hyrule (Claude Code com LLMs alternativos)
+## 11. Logs em tempo real
 
-Para rodar o Claude Code apontando para Ollama/OpenRouter em vez da API Anthropic:
+```bash
+# Supervisor
+tail -f ~/Agents/DISCORD/supervisor_out.log
 
-```powershell
-# Terminal 1 — sobe o proxy
-cd "C:\Users\SEU_USUARIO\Agents\CLAUDE CODE\global"
-python proxy.py
+# Bot Discord
+tail -f ~/Agents/DISCORD/bot_error.log
 
-# Terminal 2 — inicia o Claude Code via proxy
-.\hyrule_proxy.bat
+# Bot WhatsApp
+tail -f ~/Agents/link-bot/.linkbot/whatsapp_err.log
+
+# Triforce daemon
+tail -f ~/Agents/triforce_daemon.log
 ```
 
 ---
 
 ## Portas utilizadas
 
-| Serviço | Porta | Descrição |
-|---|---|---|
-| Discord bot HTTP API | 7331 | `/send`, `/delete`, `/history`, `/status` |
-| WhatsApp bot HTTP API | 7332 | `/send` |
-| Hyrule Proxy | 8765 | Proxy para Claude Code |
-| Ollama | 11434 | LLM local |
+| Serviço | Porta |
+|---|---|
+| Discord bot HTTP API | 7331 |
+| WhatsApp bot HTTP API | 7332 |
+| Hyrule Proxy | 8765 |
+| Ollama | 11434 |
+
+---
+
+## Migrar sessão WhatsApp do servidor antigo
+
+Para não precisar escanear o QR novamente:
+```bash
+# No servidor antigo
+scp ~/Agents/link-bot/.linkbot/session.sqlite usuario@novo_servidor:~/Agents/link-bot/.linkbot/
+```
 
 ---
 
 ## Verificação rápida
 
-```powershell
-# Status dos serviços
-python startup_services.py status
+```bash
+python3 ~/Agents/startup_services.py status
 
-# APIs
 curl http://localhost:7331/status
 curl http://localhost:11434/api/tags
 
-# Processos Python rodando
-Get-Process python* | Select-Object Id, @{N='MB';E={[math]::Round($_.WorkingSet/1MB,1)}}
+# Processos rodando
+ps aux | grep python3 | grep -v grep
 ```
-
----
-
-## Estrutura de arquivos gerados em runtime (não vão pro git)
-
-```
-Agents/
-├── hyrule_env.py              ← credenciais
-├── claude_queue.json          ← fila de pedidos ao Claude
-├── pedidos_vistos.json        ← controle de deduplicação
-├── token_usage.json/.log      ← uso de tokens por chave/dia
-├── triforce_daemon.log        ← log do daemon
-├── DISCORD/discord.log        ← log do bot Discord
-├── DISCORD/history/           ← histórico de conversas
-├── DISCORD/user_context.json  ← contexto por usuário
-└── link-bot/.linkbot/
-    ├── session.sqlite         ← sessão WhatsApp (preserve ao migrar!)
-    └── data.db                ← storage do bot
-```
-
-> **Importante ao migrar:** copie `link-bot/.linkbot/session.sqlite` para o novo servidor para não precisar parear o WhatsApp novamente.
-
----
-
-## Variáveis de ambiente opcionais
-
-Nenhuma variável de ambiente é obrigatória — tudo é configurado via `hyrule_env.py` e `config.json`.
 
 ---
 
@@ -269,13 +280,35 @@ Nenhuma variável de ambiente é obrigatória — tudo é configurado via `hyrul
 - Confirme que os Intents estão ativados no Developer Portal
 
 **WhatsApp pede QR toda vez**
-- O arquivo `session.sqlite` foi perdido ou corrompido
-- Re-execute `python -m bot.main` e escaneie o QR novamente
+- `session.sqlite` foi perdido — re-execute e escaneie o QR
+- Se migrou de servidor, verifique se copiou o arquivo corretamente
 
 **Ollama não responde**
-- Execute `ollama serve` e `ollama list`
-- Confirme que o modelo `qwen2.5:1.5b` está baixado
+- `sudo systemctl restart ollama` e `ollama list`
+- Confirme que `qwen2.5:1.5b` está baixado
 
 **Groq/OpenRouter retornam 429**
-- Rate limit atingido — o supervisor faz rotação automática entre as 3 chaves
-- Aguarde alguns minutos ou adicione mais chaves em `hyrule_env.py`
+- Rate limit — o supervisor rotaciona automaticamente entre as 3 chaves
+- Aguarde ou adicione mais chaves em `hyrule_env.py`
+
+**`pgrep` não encontrado**
+- `sudo apt install -y procps`
+
+---
+
+## Windows — referência rápida
+
+O código é cross-platform. No Windows:
+
+```powershell
+# Instalar Ollama
+# Baixe em https://ollama.com/download/windows
+
+# Dependências
+pip install discord.py aiohttp requests flask neonize qrcode httpx segno
+
+# Iniciar
+python startup_services.py start
+```
+
+Autostart: Task Scheduler → gatilho "Ao fazer logon" → `python C:\Users\SEU_USUARIO\Agents\startup_services.py start`
