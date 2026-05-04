@@ -61,6 +61,7 @@ CLAUDE CODE/global/history.jsonl
 CLAUDE CODE/global/paste-cache/
 CLAUDE CODE/global/memory/
 CLAUDE CODE/global/settings.local.json
+CLAUDE CODE/global/sessions/
 CLAUDE CODE/global/plans/
 CLAUDE CODE/global/mcp-needs-auth-cache.json
 CLAUDE CODE/global/plugins/
