@@ -1,12 +1,8 @@
 ---
 name: Handoff de sessão
-description: Estado da última sessão — lido por qualquer ferramenta (Claude Code ou Codex) ao iniciar pra retomar sem perder contexto
+description: Estado da última sessão — lido ao iniciar para retomar sem perder contexto
 type: project
 ---
-
-## Ferramenta da última sessão
-<!-- ex: Claude Code / Codex CLI -->
-—
 
 ## O que estava em andamento
 <!-- tarefas abertas, arquivos editados, problemas ativos -->
@@ -21,7 +17,7 @@ type: project
 —
 
 ## Notas rápidas
-<!-- qualquer detalhe que o próximo "Link" precisa saber -->
+<!-- qualquer detalhe que a próxima sessão precisa saber -->
 —
 
 ---
