@@ -453,8 +453,15 @@ class LinkBot:
                     msg    = str(body.get("msg", "")).strip()
                     if not to_num or not msg:
                         raise ValueError("campos 'to' e 'msg' obrigatorios")
-                    if self.path == "/triforce" and not msg.startswith("✨"):
-                        msg = f"✨ {msg}"
+                    if self.path == "/triforce":
+                        if not msg.startswith("✨"):
+                            msg = f"✨ {msg}"
+                    else:
+                        # ✨ é exclusivo do /triforce — LLM não pode usar como prefixo
+                        while msg.startswith("✨"):
+                            msg = msg.lstrip("✨").strip()
+                    if not msg:
+                        raise ValueError("mensagem vazia apos strip")
 
                     # Usa JID real capturado quando usuário enviou mensagem
                     jid = bot_ref.user_jids.get(to_num)

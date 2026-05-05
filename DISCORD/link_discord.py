@@ -594,6 +594,12 @@ async def rota_send(request):
         if not msg:
             return web.json_response({"ok": True, "skipped": "mensagem vazia apos strip"})
 
+        # ✨ é exclusivo do /triforce — strip aqui para o LLM não poder fingir
+        while msg.startswith("✨"):
+            msg = msg.lstrip("✨").strip()
+        if not msg:
+            return web.json_response({"ok": True, "skipped": "mensagem vazia apos strip"})
+
         user = await buscar_user(nome)
         if not user:
             return web.json_response({"ok": False, "error": f"Usuario '{nome}' nao encontrado"}, status=404)
