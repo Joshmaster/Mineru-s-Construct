@@ -1502,7 +1502,7 @@ def enfileirar_para_claude(pedido: str, usuario: str, canal: str = "discord"):
     fila.append({"ts": ts, "id": item_id, "pedido": pedido, "usuario": usuario, "canal": canal})
     CLAUDE_QUEUE.write_text(json.dumps(fila, ensure_ascii=False, indent=2), encoding="utf-8")
     log(f"FILA -> Claude Code ({canal}): {pedido[:80]}")
-    enviar(usuario, "⚙️ triforce acionada — processando, aguarde...", canal)
+    enviar(usuario, "✨ triforce acionada — processando, aguarde...", canal)
 
 
 def enfileirar_para_majora(pedido: str, usuario: str, canal: str = "discord"):

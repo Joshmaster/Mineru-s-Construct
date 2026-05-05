@@ -214,7 +214,7 @@ def _processar_tags(reply: str, user_id: str, usuario: str) -> tuple:
         for t in tarefas_tf:
             _submeter_tarefa_wpp(t.strip(), usuario, user_id, tipo="triforce")
         reply = re.sub(r'\[TRIFORCE:\s*.+?\]', '', reply, flags=re.IGNORECASE | re.DOTALL).strip()
-        feedback = "⚙️ acionando triforce..."
+        feedback = "✨ acionando triforce..."
 
     # MAJORA — escala pro Codex CLI
     tarefas_mx = re.findall(r'\[MAJORA:\s*(.+?)\]', reply, re.IGNORECASE | re.DOTALL)
@@ -244,7 +244,7 @@ def chat(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
     user_id: número/LID do WhatsApp (string)
     usuario: nome do usuário para o supervisor (padrão OWNER)
     Retorna reply sanitizado. Tags SHEIKAH_SLATE/TRIFORCE são processadas e removidas.
-    Se TRIFORCE detectado, retorna "⚙️ acionando triforce..." + reply.
+    Se TRIFORCE detectado, retorna "✨ acionando triforce..." + reply.
     """
     _add_to_history(user_id, "user", user_message)
 

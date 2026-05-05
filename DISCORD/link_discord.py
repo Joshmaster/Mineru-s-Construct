@@ -29,7 +29,7 @@ except ImportError:
     GROQ_KEYS = []
 
 OLLAMA_URL   = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "qwen2.5:1.5b"
+OLLAMA_MODEL = "qwen2.5:7b"
 MODELOS_FALLBACK = [
     {"url": "https://openrouter.ai/api/v1/chat/completions",   "model": "google/gemma-4-31b-it:free",               "keys": OPENROUTER_KEYS},
     {"url": "https://api.groq.com/openai/v1/chat/completions", "model": "meta-llama/llama-4-scout-17b-16e-instruct","keys": GROQ_KEYS},
@@ -492,7 +492,7 @@ async def on_message(message):
         pedido_tf = re.sub(r'^triforce\s*', '', _txt, flags=re.IGNORECASE).strip()
         if not pedido_tf:
             pedido_tf = f"{autor} quer falar com a triforce"
-        await message.channel.send("⚙️ acionando triforce...")
+        await message.channel.send("✨ acionando triforce...")
         registrar("OUT", "Link", autor, "acionando triforce...")
         registrar("SYS", "Bot", "Claude", f"[TRIFORCE-PEDIDO] {pedido_tf}")
         return

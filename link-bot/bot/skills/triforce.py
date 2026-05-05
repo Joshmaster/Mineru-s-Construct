@@ -88,7 +88,7 @@ async def handle_triforce(ctx: MessageContext):
 
     # usuario = sid (número do telefone) para o supervisor rotear de volta via WPP
     _enfileirar(pedido, sid, sid, canal="whatsapp", fila_path=CLAUDE_QUEUE)
-    await ctx.reply("⚙️ acionando triforce...")
+    await ctx.reply("✨ acionando triforce...")
     await ctx.reply(f"🔱 chamando o Claude...\n_{pedido[:120]}_")
 
 
