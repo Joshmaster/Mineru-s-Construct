@@ -2213,6 +2213,63 @@ def monitorar():
             _watchdog_ticks = 0
             if not _bot_online():
                 _reiniciar_bot()
+
+        # ── MAJORA (Codex CLI) ────────────────────────────────────────────
+        try:
+            if CODEX_QUEUE.exists():
+                raw = CODEX_QUEUE.read_text(encoding="utf-8").strip()
+                if raw:
+                    itens_mx = json.loads(raw)
+                    if itens_mx:
+                        CODEX_QUEUE.write_text("[]", encoding="utf-8")
+                        for item in itens_mx:
+                            pedido_mx  = item.get("pedido", "").strip()
+                            usuario_mx = item.get("usuario", "OWNER")
+                            canal_mx   = item.get("canal", "discord")
+                            if pedido_mx:
+                                log(f"MAJORA (Codex) encaminhando: {pedido_mx[:60]}")
+        except Exception as e:
+            log(f"Erro watcher MAJORA: {e}")
+
+        # ── WhatsApp tasks ────────────────────────────────────────────────
+        try:
+            if WPP_TASKS.exists():
+                raw = WPP_TASKS.read_text(encoding="utf-8").strip()
+                if raw:
+                    tarefas = json.loads(raw)
+                    if tarefas:
+                        WPP_TASKS.write_text("[]", encoding="utf-8")
+                        for item in tarefas:
+                            pedido_wpp  = item.get("pedido", "").strip()
+                            canal_wpp   = item.get("canal", "whatsapp")
+                            tipo_wpp    = item.get("tipo", "sheikah")
+                            sender_id   = item.get("sender_id", "")
+                            usuario_wpp = sender_id or item.get("usuario", "OWNER")
+                            if not pedido_wpp:
+                                continue
+                            chave_wpp = f"{item.get('ts','')}|WPP|{pedido_wpp}"
+                            if pedido_ja_visto(pedidos_vistos, chave_wpp):
+                                log(f"WPP duplicado, ignorando: {pedido_wpp[:60]}")
+                                continue
+                            with _pedido_lock:
+                                pedidos_vistos[chave_wpp] = time.time()
+                                salvar_pedidos_vistos(pedidos_vistos)
+                            if tipo_wpp == "triforce":
+                                log(f"WPP TRIFORCE -> Claude Code: {pedido_wpp[:80]}")
+                                enfileirar_para_claude(pedido_wpp, usuario_wpp, canal=canal_wpp)
+                            elif tipo_wpp == "majora":
+                                log(f"WPP MAJORA -> Codex: {pedido_wpp[:80]}")
+                                enfileirar_para_majora(pedido_wpp, usuario_wpp, canal=canal_wpp)
+                            else:
+                                log(f"WPP SHEIKAH -> supervisor: {pedido_wpp[:80]}")
+                                try:
+                                    responder_pedido(pedido_wpp, usuario_wpp, canal=canal_wpp)
+                                except Exception as e:
+                                    log(f"Erro WPP pedido: {e}")
+        except Exception as e:
+            log(f"Erro watcher WPP: {e}")
+
+        # ── Discord log ───────────────────────────────────────────────────
         try:
             if not LOG_FILE.exists():
                 continue
@@ -2305,62 +2362,6 @@ def monitorar():
         except Exception as e:
             log(f"Erro geral: {e}")
             time.sleep(3)
-
-        # ── MAJORA (Codex CLI) via Discord/WPP ───────────────────────────
-        try:
-            if CODEX_QUEUE.exists():
-                raw = CODEX_QUEUE.read_text(encoding="utf-8").strip()
-                if raw:
-                    itens_mx = json.loads(raw)
-                    if itens_mx:
-                        CODEX_QUEUE.write_text("[]", encoding="utf-8")
-                        for item in itens_mx:
-                            pedido_mx  = item.get("pedido", "").strip()
-                            usuario_mx = item.get("usuario", "OWNER")
-                            canal_mx   = item.get("canal", "discord")
-                            if pedido_mx:
-                                log(f"MAJORA (Codex) já processado pelo watch_codex_queue: {pedido_mx[:60]}")
-        except Exception as e:
-            log(f"Erro watcher MAJORA: {e}")
-
-        # ── WhatsApp tasks (SHEIKAH_SLATE e TRIFORCE via WPP) ─────────────
-        try:
-            if WPP_TASKS.exists():
-                raw = WPP_TASKS.read_text(encoding="utf-8").strip()
-                if raw:
-                    tarefas = json.loads(raw)
-                    if tarefas:
-                        WPP_TASKS.write_text("[]", encoding="utf-8")
-                        for item in tarefas:
-                            pedido_wpp  = item.get("pedido", "").strip()
-                            canal_wpp   = item.get("canal", "whatsapp")
-                            tipo_wpp    = item.get("tipo", "sheikah")
-                            # sender_id é o número de telefone — chave real no user_jids do bot WPP
-                            sender_id   = item.get("sender_id", "")
-                            usuario_wpp = sender_id or item.get("usuario", "OWNER")
-                            if not pedido_wpp:
-                                continue
-                            chave_wpp = f"{item.get('ts','')}|WPP|{pedido_wpp}"
-                            if pedido_ja_visto(pedidos_vistos, chave_wpp):
-                                log(f"WPP duplicado, ignorando: {pedido_wpp[:60]}")
-                                continue
-                            with _pedido_lock:
-                                pedidos_vistos[chave_wpp] = time.time()
-                                salvar_pedidos_vistos(pedidos_vistos)
-                            if tipo_wpp == "triforce":
-                                log(f"WPP TRIFORCE -> Claude Code: {pedido_wpp[:80]}")
-                                enfileirar_para_claude(pedido_wpp, usuario_wpp, canal=canal_wpp)
-                            elif tipo_wpp == "majora":
-                                log(f"WPP MAJORA -> Codex: {pedido_wpp[:80]}")
-                                enfileirar_para_majora(pedido_wpp, usuario_wpp, canal=canal_wpp)
-                            else:
-                                log(f"WPP SHEIKAH -> supervisor: {pedido_wpp[:80]}")
-                                try:
-                                    responder_pedido(pedido_wpp, usuario_wpp, canal=canal_wpp)
-                                except Exception as e:
-                                    log(f"Erro WPP pedido: {e}")
-        except Exception as e:
-            log(f"Erro watcher WPP: {e}")
 
 
 if __name__ == "__main__":
