@@ -74,7 +74,7 @@ def _processar(item: dict):
     except Exception as e:
         resposta = f"⚠️ erro majora: {e}"
 
-    _enviar(usuario, resposta[:2000], canal)
+    _enviar(usuario, f"🌑 {resposta}"[:2000], canal)
 
 
 if __name__ == "__main__":
