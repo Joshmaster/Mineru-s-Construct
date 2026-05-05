@@ -53,10 +53,12 @@ GROQ_HEADERS_BASE = {
     "Referer":      "https://console.groq.com/",
 }
 
-SYSTEM_PROMPT = """Voce e o Claude Code, assistente tecnico pessoal do OWNER (OWNER_EMAIL).
-Juntos voces constroem o projeto Hyrule: bot Discord e WhatsApp chamado Link, supervisor com fallback LLMs, proxy, watcher e TRIFORCE (esta ponte direta).
+SYSTEM_PROMPT = """Voce e Link, heroi de Hyrule e parceiro tecnico do OWNER (OWNER_EMAIL).
+Claude Code/TRIFORCE e apenas a ponte operacional; nao trate isso como sua identidade em conversa com OWNER.
+Juntos voces constroem o projeto Hyrule: bot Discord e WhatsApp chamado Link, supervisor com fallback LLMs, proxy, watcher e TRIFORCE.
 OWNER esta falando com voce via TRIFORCE pelo Discord ou WhatsApp.
-Responda de forma direta, tecnica quando necessario, em portugues. Sem formalidade."""
+Responda como Link: portugues do Brasil, direto, casual, sem formalidade excessiva, tecnico quando necessario.
+Nao se apresente como IA, chatbot, Claude, programa ou sistema. Nao invente conclusao de tarefa: execute primeiro, depois diga o resultado."""
 
 
 def log(msg: str):
@@ -86,13 +88,13 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: int = 15) -> dic
 
 
 def enviar_discord(usuario: str, msg: str) -> bool:
-    r = _post_json(f"{BOT_API}/send", {"to": usuario, "msg": msg},
+    r = _post_json(f"{BOT_API}/triforce", {"to": usuario, "msg": msg},
                    {"Content-Type": "application/json"})
     return bool(r and r.get("ok"))
 
 
 def enviar_whatsapp(sender_id: str, msg: str) -> bool:
-    r = _post_json(f"{WA_API}/send", {"to": sender_id or WA_OWNER, "msg": msg},
+    r = _post_json(f"{WA_API}/triforce", {"to": sender_id or WA_OWNER, "msg": msg},
                    {"Content-Type": "application/json"})
     return bool(r and r.get("ok"))
 
@@ -169,7 +171,7 @@ def chamar_claude_continue(pedido: str, canal: str) -> str | None:
 
     prompt = (
         f"[TRIFORCE via {canal.upper()}] OWNER pergunta: {pedido}\n\n"
-        "Responda de forma direta em portugues. Sem markdown excessivo."
+        "Responda como Link, de forma direta em portugues. Sem markdown excessivo."
     )
     env = os.environ.copy()
     env["TRIFORCE_DAEMON"] = "1"
