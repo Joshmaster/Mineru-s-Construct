@@ -86,7 +86,8 @@ async def handle_triforce(ctx: MessageContext):
         await ctx.reply("Manda o que quer perguntar pro Claude:\n`!triforce sua mensagem aqui`")
         return
 
-    _enfileirar(pedido, "OWNER", sid, canal="whatsapp", fila_path=CLAUDE_QUEUE)
+    # usuario = sid (número do telefone) para o supervisor rotear de volta via WPP
+    _enfileirar(pedido, sid, sid, canal="whatsapp", fila_path=CLAUDE_QUEUE)
     await ctx.reply("⚙️ acionando triforce...")
     await ctx.reply(f"🔱 chamando o Claude...\n_{pedido[:120]}_")
 
@@ -111,7 +112,7 @@ async def handle_majora(ctx: MessageContext):
         await ctx.reply("Manda o que quer perguntar pro Codex:\n`!majora sua mensagem aqui`")
         return
 
-    _enfileirar(pedido, "OWNER", sid, canal="whatsapp", fila_path=CODEX_QUEUE)
+    _enfileirar(pedido, sid, sid, canal="whatsapp", fila_path=CODEX_QUEUE)
     await ctx.reply("🌑 acionando majora...")
     await ctx.reply(f"🌙 chamando o Codex...\n_{pedido[:120]}_")
 
