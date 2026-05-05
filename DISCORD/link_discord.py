@@ -605,6 +605,31 @@ async def rota_send(request):
         return web.json_response({"ok": False, "error": str(e)}, status=500)
 
 
+async def rota_triforce(request):
+    """Igual /send mas garante prefixo ✨ — identifica resposta do agente de código."""
+    try:
+        data = await request.json()
+        nome = data.get("to", "").strip()
+        msg  = data.get("msg", "").strip()
+
+        if not nome or not msg:
+            return web.json_response({"ok": False, "error": "Campos 'to' e 'msg' obrigatorios"}, status=400)
+
+        if not msg.startswith("✨"):
+            msg = f"✨ {msg}"
+        msg = sanitizar(msg)
+
+        user = await buscar_user(nome)
+        if not user:
+            return web.json_response({"ok": False, "error": f"Usuario '{nome}' nao encontrado"}, status=404)
+
+        await user.send(msg)
+        registrar("OUT", "Link", user.name, msg)
+        return web.json_response({"ok": True})
+    except Exception as e:
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
 async def rota_send_file(request):
     """
     Envia um arquivo pelo Discord DM.
@@ -885,6 +910,7 @@ async def rota_status(request):
 async def start_http():
     app = web.Application()
     app.router.add_post("/send",          rota_send)
+    app.router.add_post("/triforce",      rota_triforce)
     app.router.add_post("/send-file",     rota_send_file)
     app.router.add_post("/download",      rota_download)
     app.router.add_post("/delete",        rota_delete)

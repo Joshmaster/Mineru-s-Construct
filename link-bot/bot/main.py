@@ -442,7 +442,7 @@ class LinkBot:
 
         class _Handler(BaseHTTPRequestHandler):
             def do_POST(self):
-                if self.path != "/send":
+                if self.path not in ("/send", "/triforce"):
                     self.send_response(404)
                     self.end_headers()
                     return
@@ -453,6 +453,8 @@ class LinkBot:
                     msg    = str(body.get("msg", "")).strip()
                     if not to_num or not msg:
                         raise ValueError("campos 'to' e 'msg' obrigatorios")
+                    if self.path == "/triforce" and not msg.startswith("✨"):
+                        msg = f"✨ {msg}"
 
                     # Usa JID real capturado quando usuário enviou mensagem
                     jid = bot_ref.user_jids.get(to_num)

@@ -100,9 +100,8 @@ if __name__ == "__main__":
             f"AÇÃO OBRIGATÓRIA — faça isso agora sem explicar:\n"
             f"1. Leia o pedido acima\n"
             f"2. Responda como Link: direto, curto, sem formalidade, em português\n"
-            f"3. Envie via POST http://localhost:{porta}/send\n"
-            f"   body: {{\"to\": \"{destino}\", \"msg\": \"✨ <sua resposta>\"}}\n"
-            f"IMPORTANTE: a resposta DEVE começar com ✨ para identificar que veio do agente de código.\n"
+            f"3. Envie via POST http://localhost:{porta}/triforce\n"
+            f"   body: {{\"to\": \"{destino}\", \"msg\": \"<sua resposta>\"}}\n"
             f"NÃO explique o que vai fazer. NÃO pergunte se deve configurar algo. Só execute e poste."
         )
 
