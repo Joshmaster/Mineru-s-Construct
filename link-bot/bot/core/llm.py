@@ -5,6 +5,8 @@ Carrega LINK_PERSONA.md como system prompt.
 """
 
 import json
+import re
+import time
 import urllib.request
 import urllib.error
 import logging
@@ -61,6 +63,12 @@ Você está no WhatsApp pessoal do OWNER, não no Discord.
 """
 
 _persona_cache: Optional[str] = None
+
+# ── Filas de tarefas ─────────────────────────────────────────────────────────
+
+_AGENTS_DIR = Path(__file__).resolve().parents[3]
+_WPP_TASKS  = _AGENTS_DIR / "whatsapp_tasks.json"
+_CLAUDE_Q   = _AGENTS_DIR / "claude_queue.json"
 
 
 def _load_persona() -> str:
@@ -164,6 +172,61 @@ def _call_groq(messages: list) -> Optional[str]:
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
+def _submeter_tarefa_wpp(pedido: str, usuario: str, sender_id: str, tipo: str = "sheikah"):
+    """Escreve tarefa em whatsapp_tasks.json para o supervisor processar."""
+    fila = []
+    if _WPP_TASKS.exists():
+        try:
+            fila = json.loads(_WPP_TASKS.read_text(encoding="utf-8"))
+        except Exception:
+            fila = []
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    fila.append({
+        "ts":        ts,
+        "pedido":    pedido,
+        "usuario":   usuario,
+        "sender_id": sender_id,
+        "canal":     "whatsapp",
+        "tipo":      tipo,
+    })
+    _WPP_TASKS.write_text(json.dumps(fila, ensure_ascii=False, indent=2), encoding="utf-8")
+    log.debug(f"WPP task ({tipo}): {pedido[:80]}")
+
+
+def _processar_tags(reply: str, user_id: str, usuario: str) -> tuple:
+    """
+    Extrai SHEIKAH_SLATE e TRIFORCE do reply do LLM.
+    Retorna (reply_sanitizado, feedback_extra).
+    Submete tarefas ao supervisor via whatsapp_tasks.json.
+    """
+    feedback = ""
+
+    # SHEIKAH_SLATE — tarefa do PC
+    tarefas_sk = re.findall(r'\[SHEIKAH_SLATE:\s*(.+?)\]', reply, re.IGNORECASE | re.DOTALL)
+    if tarefas_sk:
+        for t in tarefas_sk:
+            _submeter_tarefa_wpp(t.strip(), usuario, user_id, tipo="sheikah")
+        reply = re.sub(r'\[SHEIKAH_SLATE:\s*.+?\]', '', reply, flags=re.IGNORECASE | re.DOTALL).strip()
+
+    # TRIFORCE — escala pro Claude Code
+    tarefas_tf = re.findall(r'\[TRIFORCE:\s*(.+?)\]', reply, re.IGNORECASE | re.DOTALL)
+    if tarefas_tf:
+        for t in tarefas_tf:
+            _submeter_tarefa_wpp(t.strip(), usuario, user_id, tipo="triforce")
+        reply = re.sub(r'\[TRIFORCE:\s*.+?\]', '', reply, flags=re.IGNORECASE | re.DOTALL).strip()
+        feedback = "⚙️ acionando triforce..."
+
+    # MAJORA — escala pro Codex CLI
+    tarefas_mx = re.findall(r'\[MAJORA:\s*(.+?)\]', reply, re.IGNORECASE | re.DOTALL)
+    if tarefas_mx:
+        for t in tarefas_mx:
+            _submeter_tarefa_wpp(t.strip(), usuario, user_id, tipo="majora")
+        reply = re.sub(r'\[MAJORA:\s*.+?\]', '', reply, flags=re.IGNORECASE | re.DOTALL).strip()
+        feedback = "🌑 acionando majora..."
+
+    return reply, feedback
+
+
 def _is_owner(user_id: str) -> bool:
     try:
         import json
@@ -175,10 +238,13 @@ def _is_owner(user_id: str) -> bool:
         return False
 
 
-def chat(user_id: str, user_message: str) -> str:
+def chat(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
     """
     Gera resposta LLM com persona Link.
     user_id: número/LID do WhatsApp (string)
+    usuario: nome do usuário para o supervisor (padrão OWNER)
+    Retorna reply sanitizado. Tags SHEIKAH_SLATE/TRIFORCE são processadas e removidas.
+    Se TRIFORCE detectado, retorna "⚙️ acionando triforce..." + reply.
     """
     _add_to_history(user_id, "user", user_message)
 
@@ -191,10 +257,17 @@ def chat(user_id: str, user_message: str) -> str:
         )
     messages = [{"role": "system", "content": system}] + _get_history(user_id)
 
-    reply = _call_openrouter(messages) or _call_groq(messages)
+    raw_reply = _call_openrouter(messages) or _call_groq(messages)
+
+    if not raw_reply:
+        raw_reply = "🌀"
+
+    reply, feedback = _processar_tags(raw_reply, user_id, usuario)
 
     if not reply:
-        reply = "🌀"
+        reply = feedback or "🌀"
+    elif feedback:
+        reply = f"{feedback}\n{reply}".strip()
 
     _add_to_history(user_id, "assistant", reply)
     return reply

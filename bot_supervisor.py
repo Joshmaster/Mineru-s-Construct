@@ -29,7 +29,9 @@ DISCORD_DIR  = BASE / "DISCORD"
 LOG_FILE     = DISCORD_DIR / "discord.log"
 DM_SCRIPT    = DISCORD_DIR / "dm.py"
 PERSONA_FILE = BASE / "OPENCODE" / "roaming" / "LINK_PERSONA.md"
-CLAUDE_QUEUE = BASE / "claude_queue.json"
+CLAUDE_QUEUE    = BASE / "claude_queue.json"
+CODEX_QUEUE     = BASE / "codex_queue.json"
+WPP_TASKS       = BASE / "whatsapp_tasks.json"
 PYTHON       = sys.executable
 
 TOKEN_USAGE_FILE = BASE / "token_usage.json"
@@ -64,7 +66,7 @@ def _registrar_tokens(key: str, modelo: str, prompt_tokens: int, completion_toke
             f.write(line)
 
 OLLAMA_URL    = "http://localhost:11434/api/chat"
-OLLAMA_MODEL  = "qwen2.5:1.5b"      # local fallback — tool calling via <tool_call>, ~1GB
+OLLAMA_MODEL  = "qwen2.5:7b"      # local fallback — tool calling via <tool_call>, ~4.7GB
 OLLAMA_CLOUD  = None                # reservado — definir modelo cloud quando decidido
 
 try:
@@ -273,7 +275,7 @@ TOOLS_DEFINICAO = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "caminho":  {"type": "string", "description": "Caminho absoluto do arquivo (ex: C:/Users/OWNER/Desktop/nota.txt)"},
+                    "caminho":  {"type": "string", "description": "Caminho absoluto do arquivo (ex: ~/Desktop/nota.txt)"},
                     "conteudo": {"type": "string", "description": "Conteúdo a escrever no arquivo"},
                 },
                 "required": ["caminho", "conteudo"],
@@ -288,7 +290,7 @@ TOOLS_DEFINICAO = [
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "caminho": {"type": "string", "description": "Pasta a listar (ex: C:/Users/OWNER/Desktop)"},
+                    "caminho": {"type": "string", "description": "Pasta a listar (ex: ~/Desktop)"},
                 },
                 "required": ["caminho"],
             },
@@ -345,11 +347,11 @@ TOOLS_DEFINICAO = [
         "type": "function",
         "function": {
             "name": "enviar_arquivo_local",
-            "description": "Envia um arquivo já salvo no PC para o Discord. Use quando o arquivo já existe localmente (ex: C:\\Users\\...\\foto.png). Diferente de baixar_e_enviar que precisa de URL.",
+            "description": "Envia um arquivo já salvo no servidor para o Discord. Use quando o arquivo já existe localmente (ex: ~/Desktop/foto.png). Diferente de baixar_e_enviar que precisa de URL.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "caminho":  {"type": "string", "description": "Caminho completo do arquivo no PC (ex: C:\\Users\\OWNER\\Imagens\\foto.png)"},
+                    "caminho":  {"type": "string", "description": "Caminho completo do arquivo no servidor (ex: ~/Desktop/foto.png)"},
                     "usuario":  {"type": "string", "description": "Nome do usuário: OWNER ou USER2"},
                     "msg":      {"type": "string", "description": "Mensagem opcional junto ao arquivo"},
                 },
@@ -415,6 +417,30 @@ def enviar_discord(usuario: str, mensagem: str):
     log(f"ENVIADO -> {usuario}: {mensagem[:80]}")
 
 
+def enviar_whatsapp(usuario: str, mensagem: str):
+    if _e_lixo(mensagem):
+        log(f"FILTRADO WPP -> {usuario}: {mensagem[:80]}")
+        return
+    payload = json.dumps({"to": usuario, "msg": mensagem}).encode("utf-8")
+    req = urllib.request.Request(
+        "http://localhost:7332/send", data=payload,
+        headers={"Content-Type": "application/json"}, method="POST"
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            pass
+    except Exception as e:
+        log(f"Erro enviar_whatsapp: {e}")
+    log(f"ENVIADO WPP -> {usuario}: {mensagem[:80]}")
+
+
+def enviar(usuario: str, mensagem: str, canal: str = "discord"):
+    if canal == "whatsapp":
+        enviar_whatsapp(usuario, mensagem)
+    else:
+        enviar_discord(usuario, mensagem)
+
+
 def chamar_api_local(rota: str, payload: dict = None, metodo: str = "POST") -> dict | None:
     """Chama a HTTP API do bot em localhost:7331."""
     url = f"http://localhost:7331{rota}"
@@ -478,7 +504,7 @@ def ollama_disponivel() -> bool:
 
 def _ollama_chat(model: str, payload: dict) -> dict | None:
     """Chamada genérica ao Ollama. Retorna o dict da resposta ou None."""
-    # Parâmetros otimizados para qwen2.5:1.5b tool calling (fonte: comunidade Ollama)
+    # Parâmetros otimizados para qwen2.5:7b tool calling (fonte: comunidade Ollama)
     defaults = {
         "model":              model,
         "stream":             False,
@@ -536,7 +562,7 @@ def _normalizar(texto: str) -> str:
 
 
 def _selecionar_tools(pedido: str) -> list:
-    """Filtra tools por intent do pedido. Max 3 tools — qwen2.5:1.5b trava com mais."""
+    """Filtra tools por intent do pedido. Max 5 tools — qwen2.5:7b aguenta bem."""
     p = _normalizar(pedido)
 
     _busca_img = (
@@ -577,13 +603,15 @@ def _gerar_hint_sequencia(pedido: str, tools: list) -> str:
     # Multi-step com processos → PS one-liner via executar_comando
     if "executar_comando" in nomes and ("escrever_arquivo" in nomes or "listar_processos" in nomes):
         import re as _re
-        desktop = r"C:\Users\OWNER\OneDrive - MEDSENIOR\Área de Trabalho"
-        # Tenta extrair nome de arquivo do pedido
+        desktop = str(_desktop_path())
         m = _re.search(r'(?:chamado|chamada|nome|arquivo)\s+(\S+\.txt)', pedido, _re.IGNORECASE)
         fname = m.group(1) if m else "processos.txt"
-        full_path = f"{desktop}\\{fname}"
-        cmd = (f'Get-Process | Select-Object -ExpandProperty Name | Sort-Object -Unique | '
-               f'Out-File -Encoding UTF8 "{full_path}"; Write-Host "Salvo em {full_path}"')
+        full_path = str(_desktop_path() / fname)
+        if sys.platform == "win32":
+            cmd = (f'Get-Process | Select-Object -ExpandProperty Name | Sort-Object -Unique | '
+                   f'Out-File -Encoding UTF8 "{full_path}"; Write-Host "Salvo em {full_path}"')
+        else:
+            cmd = f'ps aux --no-header | awk \'{{print $11}}\' | sort -u > "{full_path}" && echo "Salvo em {full_path}"'
         return f' [Call executar_comando with this exact cmd: {cmd}]'
 
     # Tool única — nomeie explicitamente
@@ -595,7 +623,7 @@ def _gerar_hint_sequencia(pedido: str, tools: list) -> str:
 
 def executar_qwen_react(pedido: str, usuario: str) -> str | None:
     """Loop ReAct: qwen age → vê resultado → age de novo. Até 5 rodadas.
-    Usa subset de tools filtradas por relevância (max 3) para não confundir o modelo.
+    Usa subset de tools filtradas por relevância (max 5) para não confundir o modelo.
     """
     tools_filtradas = _selecionar_tools(pedido)
     nomes_tools = [t["function"]["name"] for t in tools_filtradas]
@@ -652,7 +680,7 @@ def executar_qwen_react(pedido: str, usuario: str) -> str | None:
 
 
 def _parse_tool_calls_from_content(content: str) -> list:
-    """Extrai tool calls do content em múltiplos formatos que qwen2.5:1.5b pode produzir.
+    """Extrai tool calls do content em múltiplos formatos que qwen2.5:7b pode produzir.
 
     Formatos suportados:
     1. <tool_call>{"name": "fn", "arguments": {...}}</tool_call>
@@ -1202,33 +1230,45 @@ def executar_pedido(pedido: str, usuario: str = "OWNER") -> str | None:
 
     # Qual o IP
     if any(x in pn for x in ["qual o ip", "meu ip", "endereco ip", "ip do pc", "ip local"]):
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.InterfaceAlias -notlike '*Loopback*' -and $_.InterfaceAlias -notlike '*Virtual*'} | Select-Object -First 1).IPAddress"],
-            capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-        )
+        if sys.platform == "win32":
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "(Get-NetIPAddress -AddressFamily IPv4 | Where-Object {$_.InterfaceAlias -notlike '*Loopback*' -and $_.InterfaceAlias -notlike '*Virtual*'} | Select-Object -First 1).IPAddress"],
+                capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )
+        else:
+            r = subprocess.run(
+                ["bash", "-c", "hostname -I | awk '{print $1}'"],
+                capture_output=True, env={**os.environ},
+            )
         ip = r.stdout.decode("utf-8", errors="replace").strip()
-        return f"Seu IP é {ip}." if ip else "Não consegui obter o IP."
+        return f"IP: {ip}." if ip else "Não consegui obter o IP."
 
     # Nome do computador
     if any(x in pn for x in ["nome do pc", "nome do computador", "qual o nome do pc",
                                "nome do meu pc", "como se chama o pc", "nome da maquina",
                                "qual e o nome do pc", "qual o nome do meu"]):
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-Command", "$env:COMPUTERNAME"],
-            capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-        )
+        if sys.platform == "win32":
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command", "$env:COMPUTERNAME"],
+                capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )
+        else:
+            r = subprocess.run(["hostname"], capture_output=True)
         nome = r.stdout.decode("utf-8", errors="replace").strip()
-        return f"Seu PC se chama {nome}." if nome else "Não consegui obter o nome."
+        return f"Servidor: {nome}." if nome else "Não consegui obter o nome."
 
     # Espaço em disco
     if any(x in pn for x in ["espaco livre", "disco livre", "hd livre", "ssd livre",
                                "espaco no disco", "espaco no hd", "quanto tem no hd", "quanto tem no disco"]):
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             "Get-PSDrive C | Select-Object @{N='Livre_GB';E={[math]::Round($_.Free/1GB,1)}},@{N='Total_GB';E={[math]::Round(($_.Used+$_.Free)/1GB,1)}} | Format-List"],
-            capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-        )
+        if sys.platform == "win32":
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-PSDrive C | Select-Object @{N='Livre_GB';E={[math]::Round($_.Free/1GB,1)}},@{N='Total_GB';E={[math]::Round(($_.Used+$_.Free)/1GB,1)}} | Format-List"],
+                capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )
+        else:
+            r = subprocess.run(["df", "-h", "/"], capture_output=True)
         out = r.stdout.decode("utf-8", errors="replace").strip()
         return out if out else "Não consegui verificar o disco."
 
@@ -1236,12 +1276,19 @@ def executar_pedido(pedido: str, usuario: str = "OWNER") -> str | None:
     if any(x in pn for x in ["quais programas", "quais processos", "o que ta rodando",
                                "programas abertos", "processos abertos", "lista os processos",
                                "listar processos"]):
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             "Get-Process | Select-Object -ExpandProperty Name | Sort-Object -Unique | Where-Object {$_ -notin @('Idle','System')}"],
-            capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-        )
-        procs = r.stdout.decode("utf-8", errors="replace").strip()
+        if sys.platform == "win32":
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "Get-Process | Select-Object -ExpandProperty Name | Sort-Object -Unique | Where-Object {$_ -notin @('Idle','System')}"],
+                capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )
+            procs = r.stdout.decode("utf-8", errors="replace").strip()
+        else:
+            r = subprocess.run(
+                ["bash", "-c", "ps aux --no-header | awk '{print $11}' | sort -u | grep -v '^\\[' | head -40"],
+                capture_output=True,
+            )
+            procs = r.stdout.decode("utf-8", errors="replace").strip()
         nomes = [x for x in procs.splitlines() if x.strip()][:30]
         return "Rodando agora: " + ", ".join(nomes) if nomes else "Não consegui listar processos."
 
@@ -1266,28 +1313,39 @@ def executar_pedido(pedido: str, usuario: str = "OWNER") -> str | None:
 
             # Criar arquivo com lista de processos
             if any(x in p for x in ["processo", "processos", "rodando", "aberto", "ativo"]) and fname:
-                r = subprocess.run(
-                    ["powershell", "-NoProfile", "-Command",
-                     "Get-Process | Select-Object -ExpandProperty Name | Sort-Object -Unique"],
-                    capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-                )
+                if sys.platform == "win32":
+                    r = subprocess.run(
+                        ["powershell", "-NoProfile", "-Command",
+                         "Get-Process | Select-Object -ExpandProperty Name | Sort-Object -Unique"],
+                        capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                    )
+                else:
+                    r = subprocess.run(
+                        ["bash", "-c", "ps aux --no-header | awk '{print $11}' | sort -u | grep -v '^\\['"],
+                        capture_output=True,
+                    )
                 conteudo = r.stdout.decode("utf-8", errors="replace").strip()
                 desktop = _desktop_path()
                 path = desktop / fname
+                path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(conteudo, encoding="utf-8")
-                return f"Arquivo '{fname}' criado no Desktop com {len(conteudo.splitlines())} processos."
+                return f"Arquivo '{fname}' criado com {len(conteudo.splitlines())} processos."
 
-            # Criar arquivo com saída de ipconfig/rede
+            # Criar arquivo com informações de rede
             if any(x in p for x in ["ip", "rede", "ipconfig", "network"]) and fname:
-                r = subprocess.run(
-                    ["powershell", "-NoProfile", "-Command", "ipconfig"],
-                    capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-                )
+                if sys.platform == "win32":
+                    r = subprocess.run(
+                        ["powershell", "-NoProfile", "-Command", "ipconfig"],
+                        capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                    )
+                else:
+                    r = subprocess.run(["ip", "addr"], capture_output=True)
                 conteudo = r.stdout.decode("utf-8", errors="replace").strip()
                 desktop = _desktop_path()
                 path = desktop / fname
+                path.parent.mkdir(parents=True, exist_ok=True)
                 path.write_text(conteudo, encoding="utf-8")
-                return f"Arquivo '{fname}' criado no Desktop com informações de rede."
+                return f"Arquivo '{fname}' criado com informações de rede."
 
     # Apagar/excluir mensagens do bot
     if any(x in p for x in ["apag", "exclu", "delet", "remov"]) and "mensag" in p:
@@ -1334,19 +1392,26 @@ def executar_pedido(pedido: str, usuario: str = "OWNER") -> str | None:
     # Listar programas abertos — só se não há intenção de salvar/criar arquivo (deixa pro qwen)
     if (any(x in p for x in ["programa", "aberto", "rodando", "processo", "abertos"])
             and not any(x in p for x in ["cria", "criar", "salva", "salvar", "arquivo", "txt", "escreve"])):
-        r = subprocess.run(
-            ["powershell", "-NoProfile", "-Command",
-             "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
-             "Get-Process | Select-Object -ExpandProperty Name | Sort-Object -Unique"],
-            capture_output=True,
-            env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-        )
+        if sys.platform == "win32":
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
+                 "Get-Process | Select-Object -ExpandProperty Name | Sort-Object -Unique"],
+                capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+            )
+            filtro = ["chrome","firefox","msedge","teams","outlook","winword","excel",
+                      "powerpnt","notepad","code","python","teamviewer","discord",
+                      "spotify","zoom","slack","explorer","windowsterminal","claude","opencode"]
+        else:
+            r = subprocess.run(
+                ["bash", "-c", "ps aux --no-header | awk '{print $11}' | sort -u | grep -v '^\\['"],
+                capture_output=True,
+            )
+            filtro = ["python","node","bash","discord","chrome","firefox","code","claude","codex",
+                      "supervisor","link_discord","link-bot","ollama","nginx","gunicorn"]
         nomes = r.stdout.decode("utf-8", errors="replace").strip().splitlines()
-        filtro = ["chrome","firefox","msedge","teams","outlook","winword","excel",
-                  "powerpnt","notepad","code","python","teamviewer","discord",
-                  "spotify","zoom","slack","explorer","windowsterminal","claude","opencode"]
-        apps = sorted(set(n for n in nomes if any(f in n.lower() for f in filtro)))
-        return "Programas abertos:\n" + ", ".join(apps) if apps else "Nenhum app relevante encontrado."
+        apps = sorted(set(n.split("/")[-1] for n in nomes if any(f in n.lower() for f in filtro)))
+        return "Processos ativos:\n" + ", ".join(apps) if apps else "Nenhum processo relevante."
 
     # Busca de imagem na web — entrega direto sem LLM
     _quer_imagem = any(x in p for x in ["imagem", "foto", "png", "jpg", "figura", "artwork", "arte", "ilustra"])
@@ -1424,8 +1489,8 @@ def executar_pedido(pedido: str, usuario: str = "OWNER") -> str | None:
     return None
 
 
-def enfileirar_para_claude(pedido: str, usuario: str):
-    """Escreve pedido na fila do Claude Code e notifica o usuário no Discord."""
+def enfileirar_para_claude(pedido: str, usuario: str, canal: str = "discord"):
+    """Escreve pedido na fila do Claude Code e notifica o usuário."""
     fila = []
     if CLAUDE_QUEUE.exists():
         try:
@@ -1434,11 +1499,26 @@ def enfileirar_para_claude(pedido: str, usuario: str):
             fila = []
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     item_id = f"{int(time.time())}_{usuario}"
-    fila.append({"ts": ts, "id": item_id, "pedido": pedido, "usuario": usuario})
+    fila.append({"ts": ts, "id": item_id, "pedido": pedido, "usuario": usuario, "canal": canal})
     CLAUDE_QUEUE.write_text(json.dumps(fila, ensure_ascii=False, indent=2), encoding="utf-8")
-    log(f"FILA -> Claude Code: {pedido[:80]}")
-    # Notifica usuário imediatamente no Discord
-    chamar_api_local("/send", {"to": usuario, "msg": "⚙️ triforce acionada — processando, aguarde..."})
+    log(f"FILA -> Claude Code ({canal}): {pedido[:80]}")
+    enviar(usuario, "⚙️ triforce acionada — processando, aguarde...", canal)
+
+
+def enfileirar_para_majora(pedido: str, usuario: str, canal: str = "discord"):
+    """Escreve pedido na fila do Codex CLI (MAJORA) e notifica o usuário."""
+    fila = []
+    if CODEX_QUEUE.exists():
+        try:
+            fila = json.loads(CODEX_QUEUE.read_text(encoding="utf-8"))
+        except Exception:
+            fila = []
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    item_id = f"{int(time.time())}_{usuario}"
+    fila.append({"ts": ts, "id": item_id, "pedido": pedido, "usuario": usuario, "canal": canal})
+    CODEX_QUEUE.write_text(json.dumps(fila, ensure_ascii=False, indent=2), encoding="utf-8")
+    log(f"FILA -> Codex/MAJORA ({canal}): {pedido[:80]}")
+    enviar(usuario, "🌑 majora acionada — processando, aguarde...", canal)
 
 
 def buscar_internet(query: str) -> str:
@@ -1639,36 +1719,32 @@ def executar_tool(nome: str, args: dict) -> str:
         elif nome == "salvar_no_desktop":
             url      = args.get("url", "")
             filename = args.get("filename", "") or url.split("/")[-1].split("?")[0] or "arquivo"
-            profile  = Path(os.environ.get("USERPROFILE", "C:/Users/OWNER"))
-            # Tenta Desktop padrão e OneDrive
-            for candidate in [
-                profile / "Desktop" / filename,
-                profile / "OneDrive - MEDSENIOR" / "Área de Trabalho" / filename,
-            ]:
-                if candidate.parent.exists():
-                    desktop = candidate
-                    break
-            else:
-                desktop = profile / "Desktop" / filename
-                desktop.parent.mkdir(parents=True, exist_ok=True)
+            desktop  = _desktop_path() / filename
+            desktop.parent.mkdir(parents=True, exist_ok=True)
             req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
             with urllib.request.urlopen(req, timeout=30) as r:
                 desktop.write_bytes(r.read())
-            return f"Arquivo '{filename}' salvo no Desktop."
+            return f"Arquivo '{filename}' salvo."
 
         elif nome == "executar_comando":
             cmd     = args.get("cmd", "")
             timeout = min(int(args.get("timeout", 15)), 60)
-            # Bloqueia comandos Unix que qwen às vezes gera por engano no Windows
-            _unix_cmds = ["mkdir -p", "touch ", "rm -rf", "ls -", "cat ", "grep ", "sed ", "awk ",
-                          "df -", "find /", "chmod ", "chown ", "echo $"]
-            if any(u in cmd for u in _unix_cmds):
-                return f"Erro: comando Unix detectado ('{cmd[:40]}...'). Use PowerShell/Windows."
-            r = subprocess.run(
-                ["powershell", "-NoProfile", "-Command", cmd],
-                capture_output=True, timeout=timeout,
-                env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-            )
+            if sys.platform == "win32":
+                _unix_cmds = ["mkdir -p", "touch ", "rm -rf", "ls -", "cat ", "grep ", "sed ", "awk ",
+                              "df -", "find /", "chmod ", "chown ", "echo $"]
+                if any(u in cmd for u in _unix_cmds):
+                    return f"Erro: comando Unix detectado ('{cmd[:40]}...'). Use PowerShell/Windows."
+                r = subprocess.run(
+                    ["powershell", "-NoProfile", "-Command", cmd],
+                    capture_output=True, timeout=timeout,
+                    env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                )
+            else:
+                r = subprocess.run(
+                    ["bash", "-c", cmd],
+                    capture_output=True, timeout=timeout,
+                    env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                )
             out = r.stdout.decode("utf-8", errors="replace").strip()
             err = r.stderr.decode("utf-8", errors="replace").strip()
             return (out or err or "Comando executado sem output.")[:800]
@@ -1900,26 +1976,26 @@ def chamar_agente_tools(pedido: str, usuario: str) -> str | None:
     return None
 
 
-def responder_pedido(pedido: str, usuario: str, sem_triforce: bool = False):
-    log(f"PEDIDO: {pedido}")
+def responder_pedido(pedido: str, usuario: str, sem_triforce: bool = False, canal: str = "discord"):
+    log(f"PEDIDO ({canal}): {pedido}")
 
     # 1. Execução local simples (sem LLM)
     resultado = executar_pedido(pedido, usuario)
     if resultado:
-        enviar_discord(usuario, resultado)
+        enviar(usuario, resultado, canal)
         return
 
     # 2. Link Discord (qwen local) — ReAct loop, executor principal
     if ollama_disponivel():
         resultado_react = executar_qwen_react(pedido, usuario)
         if resultado_react:
-            enviar_discord(usuario, resultado_react)
+            enviar(usuario, resultado_react, canal)
             return
 
     # 3. Fallback OpenRouter (se Ollama indisponível)
     resultado_agente = chamar_agente_tools(pedido, usuario)
     if resultado_agente:
-        enviar_discord(usuario, resultado_agente)
+        enviar(usuario, resultado_agente, canal)
         return
 
     # 4. Groq direto
@@ -1928,17 +2004,17 @@ def responder_pedido(pedido: str, usuario: str, sem_triforce: bool = False):
         system_g = "Você é um assistente pessoal. Responda de forma direta em português."
         resp_g, _ = chamar_groq_tools(pedido, system_g, tools_g)
         if resp_g:
-            enviar_discord(usuario, resp_g)
+            enviar(usuario, resp_g, canal)
             return
     except Exception:
         pass
 
     if sem_triforce:
-        enviar_discord(usuario, "⚠️ não consegui processar agora, tente novamente.")
+        enviar(usuario, "⚠️ não consegui processar agora, tente novamente.", canal)
         return
 
     # 5. Escala pro Claude Code só se tudo falhar
-    enfileirar_para_claude(pedido, usuario)  # já envia notificação ao usuário
+    enfileirar_para_claude(pedido, usuario, canal=canal)
 
 
 # ── Corretor de respostas ruins ───────────────────────────────────────────────
@@ -2196,7 +2272,7 @@ def monitorar():
                     except Exception as e:
                         log(f"Erro ao processar linha: {e}")
 
-                # Enfileira TRIFORCE → Claude Code
+                # Enfileira TRIFORCE Discord → Claude Code
                 elif "[SYS]" in linha and "[TRIFORCE-PEDIDO]" in linha:
                     try:
                         pedido_tf = linha.split("[TRIFORCE-PEDIDO] ")[1].strip()
@@ -2229,6 +2305,57 @@ def monitorar():
         except Exception as e:
             log(f"Erro geral: {e}")
             time.sleep(3)
+
+        # ── MAJORA (Codex CLI) via Discord/WPP ───────────────────────────
+        try:
+            if CODEX_QUEUE.exists():
+                raw = CODEX_QUEUE.read_text(encoding="utf-8").strip()
+                if raw:
+                    itens_mx = json.loads(raw)
+                    if itens_mx:
+                        CODEX_QUEUE.write_text("[]", encoding="utf-8")
+                        for item in itens_mx:
+                            pedido_mx  = item.get("pedido", "").strip()
+                            usuario_mx = item.get("usuario", "OWNER")
+                            canal_mx   = item.get("canal", "discord")
+                            if pedido_mx:
+                                log(f"MAJORA (Codex) já processado pelo watch_codex_queue: {pedido_mx[:60]}")
+        except Exception as e:
+            log(f"Erro watcher MAJORA: {e}")
+
+        # ── WhatsApp tasks (SHEIKAH_SLATE e TRIFORCE via WPP) ─────────────
+        try:
+            if WPP_TASKS.exists():
+                raw = WPP_TASKS.read_text(encoding="utf-8").strip()
+                if raw:
+                    tarefas = json.loads(raw)
+                    if tarefas:
+                        WPP_TASKS.write_text("[]", encoding="utf-8")
+                        for item in tarefas:
+                            pedido_wpp  = item.get("pedido", "").strip()
+                            usuario_wpp = item.get("usuario", "OWNER")
+                            canal_wpp   = item.get("canal", "whatsapp")
+                            tipo_wpp    = item.get("tipo", "sheikah")
+                            if not pedido_wpp:
+                                continue
+                            chave_wpp = f"{item.get('ts','')}|WPP|{pedido_wpp}"
+                            if pedido_ja_visto(pedidos_vistos, chave_wpp):
+                                log(f"WPP duplicado, ignorando: {pedido_wpp[:60]}")
+                                continue
+                            with _pedido_lock:
+                                pedidos_vistos[chave_wpp] = time.time()
+                                salvar_pedidos_vistos(pedidos_vistos)
+                            if tipo_wpp == "triforce":
+                                log(f"WPP TRIFORCE -> Claude Code: {pedido_wpp[:80]}")
+                                enfileirar_para_claude(pedido_wpp, usuario_wpp, canal=canal_wpp)
+                            else:
+                                log(f"WPP SHEIKAH -> supervisor: {pedido_wpp[:80]}")
+                                try:
+                                    responder_pedido(pedido_wpp, usuario_wpp, canal=canal_wpp)
+                                except Exception as e:
+                                    log(f"Erro WPP pedido: {e}")
+        except Exception as e:
+            log(f"Erro watcher WPP: {e}")
 
 
 if __name__ == "__main__":

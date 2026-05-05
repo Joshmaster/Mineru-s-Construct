@@ -191,6 +191,11 @@ class LinkBot:
 
     async def _on_connected(self, _client, _ev):
         log.info("🟢 Conectado ao WhatsApp.")
+        try:
+            me = await self.client.get_me()
+            self.my_jid = me.JID
+        except Exception:
+            pass
         await self.scheduler.start()
 
     async def _on_pair(self, _client, ev):
@@ -344,6 +349,8 @@ class LinkBot:
         if not text or not text.strip():
             return
 
+        pushname = getattr(ev.Info, "Pushname", "") or ""
+        message_id = getattr(ev.Info, "ID", "") or ""
         log.info(f"📩 [{sender_number}] {text[:80]}")
 
         # Armazena JID real para uso no HTTP API
@@ -354,8 +361,17 @@ class LinkBot:
         if match is None:
             # Fallback LLM com persona Link (OpenRouter → Groq)
             try:
+                _ctx_llm = MessageContext(
+                    raw_text=text, args_text=text,
+                    sender_jid=sender_jid, chat_jid=chat_jid,
+                    is_group=is_group, message_id=message_id,
+                    my_jid=self.my_jid, pushname=pushname,
+                    client=self.client,
+                )
+                await _ctx_llm.typing()
+                nome_usuario = pushname or "OWNER"
                 reply = await asyncio.get_event_loop().run_in_executor(
-                    None, _llm.chat, sender_number, text
+                    None, _llm.chat, sender_number, text, nome_usuario
                 )
                 await self.client.send_message(chat_jid, reply)
             except Exception as e:
@@ -382,6 +398,9 @@ class LinkBot:
             sender_jid=sender_jid,
             chat_jid=chat_jid,
             is_group=is_group,
+            message_id=message_id,
+            my_jid=self.my_jid,
+            pushname=pushname,
             has_media=has_media,
             media_type=media_kind,
             media_path=media_path,
@@ -390,6 +409,10 @@ class LinkBot:
             config=self.config,
             router=self.router,
         )
+
+        # Reage com espada + mostra digitando
+        await ctx.react("⚔️")
+        await ctx.typing()
 
         # Dispara
         try:

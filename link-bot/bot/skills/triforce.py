@@ -13,8 +13,10 @@ from pathlib import Path
 from bot.core.router import Skill
 from bot.core.context import MessageContext
 
-CLAUDE_QUEUE = Path(r"C:\Users\OWNER\Agents\claude_queue.json")
-CONFIG_PATH  = Path(r"C:\Users\OWNER\Agents\link-bot\config\config.json")
+_AGENTS_DIR  = Path(__file__).resolve().parents[3]
+CLAUDE_QUEUE = _AGENTS_DIR / "claude_queue.json"
+CODEX_QUEUE  = _AGENTS_DIR / "codex_queue.json"
+CONFIG_PATH  = _AGENTS_DIR / "link-bot" / "config" / "config.json"
 
 
 def _is_owner(ctx: MessageContext) -> bool:
@@ -43,11 +45,13 @@ def _ultimo_pedido_llm(sender_id: str) -> str:
     return ""
 
 
-def _enfileirar(pedido: str, usuario: str, sender_id: str, canal: str = "whatsapp"):
+def _enfileirar(pedido: str, usuario: str, sender_id: str, canal: str = "whatsapp", fila_path: Path = None):
+    if fila_path is None:
+        fila_path = CLAUDE_QUEUE
     fila = []
-    if CLAUDE_QUEUE.exists():
+    if fila_path.exists():
         try:
-            fila = json.loads(CLAUDE_QUEUE.read_text(encoding="utf-8"))
+            fila = json.loads(fila_path.read_text(encoding="utf-8"))
         except Exception:
             fila = []
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
@@ -59,7 +63,7 @@ def _enfileirar(pedido: str, usuario: str, sender_id: str, canal: str = "whatsap
         "sender_id": sender_id,
         "canal":     canal,
     })
-    CLAUDE_QUEUE.write_text(json.dumps(fila, ensure_ascii=False, indent=2), encoding="utf-8")
+    fila_path.write_text(json.dumps(fila, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
 async def handle_triforce(ctx: MessageContext):
@@ -69,14 +73,12 @@ async def handle_triforce(ctx: MessageContext):
 
     sid = _sender_id(ctx)
 
-    # Tenta pegar pedido do args ou do padrão [TRIFORCE: ...]
     pedido = ctx.args_text.strip()
     if not pedido:
         m = re.search(r'\[TRIFORCE:\s*(.+?)\]', ctx.raw_text, re.IGNORECASE)
         if m:
             pedido = m.group(1).strip()
 
-    # Sem args → usa a última mensagem do histórico LLM
     if not pedido:
         pedido = _ultimo_pedido_llm(sid)
 
@@ -84,8 +86,34 @@ async def handle_triforce(ctx: MessageContext):
         await ctx.reply("Manda o que quer perguntar pro Claude:\n`!triforce sua mensagem aqui`")
         return
 
-    _enfileirar(pedido, "OWNER", sid, canal="whatsapp")
+    _enfileirar(pedido, "OWNER", sid, canal="whatsapp", fila_path=CLAUDE_QUEUE)
+    await ctx.reply("⚙️ acionando triforce...")
     await ctx.reply(f"🔱 chamando o Claude...\n_{pedido[:120]}_")
+
+
+async def handle_majora(ctx: MessageContext):
+    if not _is_owner(ctx):
+        await ctx.reply("🔒 Só o dono pode acionar a MAJORA.")
+        return
+
+    sid = _sender_id(ctx)
+
+    pedido = ctx.args_text.strip()
+    if not pedido:
+        m = re.search(r'\[MAJORA:\s*(.+?)\]', ctx.raw_text, re.IGNORECASE)
+        if m:
+            pedido = m.group(1).strip()
+
+    if not pedido:
+        pedido = _ultimo_pedido_llm(sid)
+
+    if not pedido:
+        await ctx.reply("Manda o que quer perguntar pro Codex:\n`!majora sua mensagem aqui`")
+        return
+
+    _enfileirar(pedido, "OWNER", sid, canal="whatsapp", fila_path=CODEX_QUEUE)
+    await ctx.reply("🌑 acionando majora...")
+    await ctx.reply(f"🌙 chamando o Codex...\n_{pedido[:120]}_")
 
 
 SKILL = [
@@ -102,6 +130,22 @@ SKILL = [
         description="*[TRIFORCE: pedido]* — acionar Claude inline",
         triggers=["[triforce"],
         handler=handle_triforce,
+        category="admin",
+        priority=20,
+    ),
+    Skill(
+        name="majora_cmd",
+        description="*!majora <pedido>* — fala direto com o Codex (só dono)",
+        triggers=["!majora"],
+        handler=handle_majora,
+        category="admin",
+        priority=20,
+    ),
+    Skill(
+        name="majora_inline",
+        description="*[MAJORA: pedido]* — acionar Codex inline",
+        triggers=["[majora"],
+        handler=handle_majora,
         category="admin",
         priority=20,
     ),
