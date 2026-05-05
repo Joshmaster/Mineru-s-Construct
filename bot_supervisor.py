@@ -2333,9 +2333,11 @@ def monitorar():
                         WPP_TASKS.write_text("[]", encoding="utf-8")
                         for item in tarefas:
                             pedido_wpp  = item.get("pedido", "").strip()
-                            usuario_wpp = item.get("usuario", "OWNER")
                             canal_wpp   = item.get("canal", "whatsapp")
                             tipo_wpp    = item.get("tipo", "sheikah")
+                            # sender_id é o número de telefone — chave real no user_jids do bot WPP
+                            sender_id   = item.get("sender_id", "")
+                            usuario_wpp = sender_id or item.get("usuario", "OWNER")
                             if not pedido_wpp:
                                 continue
                             chave_wpp = f"{item.get('ts','')}|WPP|{pedido_wpp}"
@@ -2348,6 +2350,9 @@ def monitorar():
                             if tipo_wpp == "triforce":
                                 log(f"WPP TRIFORCE -> Claude Code: {pedido_wpp[:80]}")
                                 enfileirar_para_claude(pedido_wpp, usuario_wpp, canal=canal_wpp)
+                            elif tipo_wpp == "majora":
+                                log(f"WPP MAJORA -> Codex: {pedido_wpp[:80]}")
+                                enfileirar_para_majora(pedido_wpp, usuario_wpp, canal=canal_wpp)
                             else:
                                 log(f"WPP SHEIKAH -> supervisor: {pedido_wpp[:80]}")
                                 try:

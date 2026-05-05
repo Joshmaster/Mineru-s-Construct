@@ -81,18 +81,28 @@ if __name__ == "__main__":
         if not itens:
             continue
 
-        usuario = itens[0].get("usuario", "OWNER") if itens else "OWNER"
+        primeiro    = itens[0] if itens else {}
+        usuario     = primeiro.get("usuario", "OWNER")
+        canal       = primeiro.get("canal", "discord")
+        sender_id   = primeiro.get("sender_id", "")
+        porta       = 7332 if canal == "whatsapp" else 7331
+        destino     = sender_id if (canal == "whatsapp" and sender_id) else usuario
+
         pedidos = "\n".join(
             f"[{it.get('ts','')}] {it.get('usuario','?')}: {it.get('pedido','')}"
             for it in itens
         )
 
         msg = (
-            f"=== TRIFORCE — PEDIDO DO DISCORD (slot {slot}) ===\n"
+            f"=== TRIFORCE — PEDIDO VIA {canal.upper()} (slot {slot}) ===\n"
             f"{pedidos}\n"
             f"{'=' * 48}\n"
-            f"Processe o pedido acima e responda via:\n"
-            f"POST http://localhost:7331/send  body: {{\"to\": \"{usuario}\", \"msg\": \"sua resposta\"}}"
+            f"AÇÃO OBRIGATÓRIA — faça isso agora sem explicar:\n"
+            f"1. Leia o pedido acima\n"
+            f"2. Responda como Link: direto, curto, sem formalidade, em português\n"
+            f"3. Envie via POST http://localhost:{porta}/send\n"
+            f"   body: {{\"to\": \"{destino}\", \"msg\": \"<sua resposta como Link>\"}}\n"
+            f"NÃO explique o que vai fazer. NÃO pergunte se deve configurar algo. Só execute e poste."
         )
 
         out = json.dumps({"systemMessage": msg}, ensure_ascii=False)
