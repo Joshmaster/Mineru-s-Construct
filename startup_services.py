@@ -48,6 +48,11 @@ TRIFORCE_DAEMON_SCRIPT  = BASE / "triforce_daemon.py"
 TRIFORCE_DAEMON_PID     = BASE / ".triforce_daemon_pid"
 TRIFORCE_DAEMON_LOG     = BASE / "triforce_daemon.log"
 
+# MAJORA watcher (Codex)
+MAJORA_SCRIPT  = BASE / "watch_codex_queue.py"
+MAJORA_PID     = BASE / ".majora_pid"
+MAJORA_LOG     = BASE / "majora.log"
+
 MEMORY_FILES = [
     BASE / "pedidos_vistos.json",        # supervisor usa Agents/ (não DISCORD/)
     DISCORD_DIR / "pedidos_vistos.json", # compat — limpa os dois
@@ -303,6 +308,29 @@ def iniciar_triforce_daemon():
     return True
 
 
+def iniciar_majora():
+    print("Iniciando MAJORA watcher (Codex)...")
+    log_out = open(MAJORA_LOG, "w", encoding="utf-8")
+    proc = subprocess.Popen(
+        [PYTHON, "-u", str(MAJORA_SCRIPT)],
+        cwd=str(BASE),
+        stdout=log_out,
+        stderr=log_out,
+        creationflags=_NO_WINDOW,
+    )
+    MAJORA_PID.write_text(str(proc.pid), encoding="ascii")
+    print(f"  PID {proc.pid}")
+    return True
+
+
+def parar_majora():
+    _matar_por_script("watch_codex_queue")
+    pid = _ler_pid(MAJORA_PID)
+    if pid:
+        _matar_pid(pid)
+    MAJORA_PID.unlink(missing_ok=True)
+
+
 # ── Apagar mensagens do Discord (após bot online) ─────────────────────────────
 
 def _apagar_msgs_discord():
@@ -346,6 +374,7 @@ def cmd_start():
         print("TRIFORCE daemon já está rodando.")
     else:
         iniciar_triforce_daemon()
+    iniciar_majora()
 
 
 def cmd_restart(limpar: bool = True):
@@ -354,6 +383,7 @@ def cmd_restart(limpar: bool = True):
     parar_supervisor()
     parar_whatsapp()
     parar_triforce_daemon()
+    parar_majora()
     time.sleep(1)
     if limpar:
         limpar_memoria()
@@ -361,6 +391,7 @@ def cmd_restart(limpar: bool = True):
     iniciar_supervisor()
     iniciar_whatsapp()
     iniciar_triforce_daemon()
+    iniciar_majora()
     if limpar:
         _apagar_msgs_discord()
 
@@ -370,6 +401,7 @@ def cmd_stop():
     parar_supervisor()
     parar_whatsapp()
     parar_triforce_daemon()
+    parar_majora()
     print("Serviços parados.")
 
 

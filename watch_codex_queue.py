@@ -57,9 +57,10 @@ def _processar(item: dict):
 
     try:
         result = subprocess.run(
-            ["codex", "--full-auto", pedido],
+            ["codex", "exec", pedido],
             capture_output=True, text=True, timeout=180,
-            encoding="utf-8", errors="replace"
+            encoding="utf-8", errors="replace",
+            cwd="~/Agents",
         )
         resposta = (result.stdout or "").strip()
         if not resposta:
