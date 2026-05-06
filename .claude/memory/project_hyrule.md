@@ -9,7 +9,7 @@ originSessionId: ac218d08-6f60-4d2f-b426-1188d53f3b27
 Todos os agentes ficam em `~/Agents/`.
 
 ### Bot Discord — Link (`DISCORD/link_discord.py`)
-- Responde OWNER (`DISCORD_OWNER_USERNAME`) e USER2 (`DISCORD_USER2_USERNAME`) via DM no Discord
+- Responde OWNER (`DISCORD_OWNER_USERNAME`) e USER2 (`DISCORD_USER_2`) via DM no Discord
 - Usa LLMs free tier (OpenRouter + Groq) com fallback entre modelos
 - Persona carregada de `OPENCODE/roaming/LINK_PERSONA.md`
 - Quando OWNER pede algo do PC, gera tag `[SHEIKAH_SLATE: descrição]`
