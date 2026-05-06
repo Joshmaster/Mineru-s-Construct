@@ -637,13 +637,19 @@ def executar_qwen_react(pedido: str, usuario: str) -> str | None:
     elif tools_filtradas:
         tool_name_hint = f" You MUST call one of: {', '.join(nomes_tools)}."
 
+    os_nome = "Windows/PowerShell" if sys.platform == "win32" else "Linux/bash"
+    os_regra = (
+        "Use PowerShell commands only. Never use bash syntax."
+        if sys.platform == "win32"
+        else "Use Linux bash commands only. Never use PowerShell cmdlets like Get-Date, Get-Process or .ToString()."
+    )
     system = (
         carregar_contexto_pc() +
-        "You are Link, an autonomous PC agent on OWNER's Windows PC.\n"
+        f"You are Link, an autonomous PC agent on OWNER's {os_nome} machine.\n"
         "CRITICAL: Do NOT answer from memory. Do NOT guess."
         f"{tool_name_hint}\n"
         "Call the tool to get real data, then reply to OWNER in Portuguese in one sentence.\n"
-        "Use executar_comando for any OS query (IP, disk, processes, date, etc.)."
+        f"Use executar_comando for any OS query (IP, disk, processes, date, etc.). {os_regra}"
     )
     system_final = system + ("\nInstruction: " + tool_hint if tool_hint else "")
     historico = [
@@ -1678,16 +1684,23 @@ def executar_tool(nome: str, args: dict) -> str:
             return buscar_imagem(args.get("termo", ""), args.get("wiki", "zelda"))
 
         elif nome == "listar_processos":
-            r = subprocess.run(
-                ["powershell", "-NoProfile", "-Command",
-                 "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
-                 "Get-Process | Select-Object -ExpandProperty Name | Sort-Object -Unique"],
-                capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-            )
-            nomes = r.stdout.decode("utf-8", errors="replace").strip().splitlines()
+            if sys.platform == "win32":
+                r = subprocess.run(
+                    ["powershell", "-NoProfile", "-Command",
+                     "[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; "
+                     "Get-Process | Select-Object -ExpandProperty Name | Sort-Object -Unique"],
+                    capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                )
+                nomes = r.stdout.decode("utf-8", errors="replace").strip().splitlines()
+            else:
+                r = subprocess.run(
+                    ["bash", "-c", "ps -eo comm= | sort -u"],
+                    capture_output=True, env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+                )
+                nomes = r.stdout.decode("utf-8", errors="replace").strip().splitlines()
             filtro = ["chrome","firefox","msedge","teams","outlook","winword","excel",
                       "powerpnt","notepad","code","python","discord","spotify","zoom",
-                      "slack","explorer","windowsterminal","claude","opencode"]
+                      "slack","explorer","windowsterminal","claude","opencode","node"]
             apps = sorted(set(n for n in nomes if any(f in n.lower() for f in filtro)))
             return "Processos: " + ", ".join(apps) if apps else "Nenhum app relevante."
 
