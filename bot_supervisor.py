@@ -87,21 +87,27 @@ GROQ_HEADERS = {
 }
 # Modelos Groq com tool calling (0.3s latência)
 GROQ_MODELOS = [
-    "llama-3.3-70b-versatile",
-    "moonshotai/kimi-k2-instruct",
-    "openai/gpt-oss-20b",
-    "llama-3.1-8b-instant",
+    "llama-3.3-70b-versatile",                    # 1o — 70B, melhor geral
+    "meta-llama/llama-4-scout-17b-16e-instruct",  # 2o — llama4, arquitetura nova
+    "qwen/qwen3-32b",                              # 3o — 32B raciocinio
+    "groq/compound",                               # 4o — compound groq
+    "groq/compound-mini",                          # 5o — compound menor
+    "llama-3.1-8b-instant",                        # 6o — 8B rapido
+    "allam-2-7b",                                  # 7o — 7B ultimo recurso
 ]
 
 OPENROUTER_KEYS = _OPENROUTER_KEYS_ENV
 # Modelos validados com tool calling (ordenados por confiabilidade/velocidade)
 MODELOS = [
-    "openai/gpt-oss-20b:free",                 # 1o — 3s, args limpos
-    "openai/gpt-oss-120b:free",                # 2o — backup maior
-    "nvidia/nemotron-3-super-120b-a12b:free",  # 3o — 7s, funciona
-    "arcee-ai/trinity-large-preview:free",     # 4o — reserva
-    "meta-llama/llama-3.3-70b-instruct:free",  # 5o — rate limit frequente
-    "google/gemma-4-31b-it:free",              # 6o — rate limit frequente
+    "openai/gpt-oss-120b:free",                   # 1o — 120B mais capaz
+    "openai/gpt-oss-20b:free",                    # 2o — 20B rapido, tool args limpos
+    "nvidia/nemotron-3-super-120b-a12b:free",     # 3o — 120B nvidia
+    "google/gemma-4-31b-it:free",                 # 4o — 31B google
+    "google/gemma-4-26b-a4b-it:free",             # 5o — 26B MoE google
+    "inclusionai/ling-2.6-1t:free",               # 6o — 1T MoE
+    "openrouter/free",                             # 7o — meta auto-router
+    "openrouter/owl-alpha",                        # 8o — experimental
+    "liquid/lfm-2.5-1.2b-instruct:free",          # 9o — 1.2B ultimo recurso
 ]
 
 # Definição das tools disponíveis para o agente LLM

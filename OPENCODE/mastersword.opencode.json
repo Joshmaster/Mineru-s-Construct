@@ -3,28 +3,75 @@
   "provider": {
     "openrouter": {
       "api": "https://openrouter.ai/api/v1",
-      "env": ["OPENROUTER_API_KEY"],
+      "env": [
+        "OPENROUTER_API_KEY"
+      ],
       "models": {
-        "openai/gpt-oss-20b:free": { "name": "GPT OSS 20B (gratis, barato)" },
-        "openai/gpt-oss-120b:free": { "name": "GPT OSS 120B (gratis)" },
-        "google/gemma-4-31b-it:free": { "name": "Gemma 4 31B (gratis)" },
-        "nvidia/nemotron-3-super-120b-a12b:free": { "name": "Nemotron 120B (gratis)" },
-        "meta-llama/llama-3.3-70b-instruct:free": { "name": "LLaMA 3.3 70B (gratis)" }
+        "openai/gpt-oss-120b:free": {
+          "name": "GPT OSS 120B (melhor)"
+        },
+        "openai/gpt-oss-20b:free": {
+          "name": "GPT OSS 20B (rapido)"
+        },
+        "nvidia/nemotron-3-super-120b-a12b:free": {
+          "name": "Nemotron 120B"
+        },
+        "google/gemma-4-31b-it:free": {
+          "name": "Gemma 4 31B"
+        },
+        "google/gemma-4-26b-a4b-it:free": {
+          "name": "Gemma 4 26B"
+        },
+        "inclusionai/ling-2.6-1t:free": {
+          "name": "Ling 2.6 1T"
+        },
+        "openrouter/free": {
+          "name": "OpenRouter Free (auto)"
+        },
+        "openrouter/owl-alpha": {
+          "name": "Owl Alpha"
+        },
+        "liquid/lfm-2.5-1.2b-instruct:free": {
+          "name": "LFM 1.2B (leve)"
+        }
       }
     },
     "groq": {
       "api": "https://api.groq.com/openai/v1",
-      "env": ["GROQ_API_KEY"],
+      "env": [
+        "GROQ_API_KEY"
+      ],
       "models": {
-        "llama-3.3-70b-versatile": { "name": "LLaMA 3.3 70B (gratis)" },
-        "moonshotai/kimi-k2-instruct": { "name": "Kimi K2 (gratis)" }
+        "llama-3.3-70b-versatile": {
+          "name": "LLaMA 3.3 70B (melhor)"
+        },
+        "meta-llama/llama-4-scout-17b-16e-instruct": {
+          "name": "LLaMA 4 Scout 17B"
+        },
+        "qwen/qwen3-32b": {
+          "name": "Qwen3 32B"
+        },
+        "groq/compound": {
+          "name": "Groq Compound"
+        },
+        "groq/compound-mini": {
+          "name": "Groq Compound Mini"
+        },
+        "llama-3.1-8b-instant": {
+          "name": "LLaMA 3.1 8B"
+        },
+        "allam-2-7b": {
+          "name": "Allam 2 7B (leve)"
+        }
       }
     },
     "ollama": {
       "api": "http://localhost:11434/v1",
       "npm": "@ai-sdk/openai-compatible",
       "models": {
-        "qwen2.5:7b": { "name": "Qwen 2.5 7B (local)" }
+        "qwen2.5:7b": {
+          "name": "Qwen 2.5 7B (local)"
+        }
       }
     }
   },
