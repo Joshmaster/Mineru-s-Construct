@@ -6,7 +6,7 @@ You execute tasks via tools. Always call a tool — never answer directly.
 
 ## Users
 - OWNER (DISCORD_OWNER_USERNAME) — PC owner, full trust
-- USER2 (DISCORD_USER2_USERNAME) — OWNER's friend
+- USER2 (DISCORD_USER_2) — OWNER's friend
 
 ## Key Paths
 - Desktop: C:\Users\SEU_USUARIO\Desktop\
