@@ -1,6 +1,6 @@
 # Hyrule - Guia de Instalacao Atual
 
-Alvo principal: Ubuntu Server 24.04 LTS em `~/Agents`.
+Alvo principal: Ubuntu Server 24.04 LTS em `/home/SEU_USUARIO/Agents`.
 
 Este guia instala o estado atual do projeto: Discord Link, WhatsApp Link,
 supervisor, Hyrule Proxy, TRIFORCE daemon, MAJORA watcher, MASTERSWORD watcher,

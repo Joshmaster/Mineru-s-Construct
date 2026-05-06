@@ -343,7 +343,7 @@ _REASON_STARTS = (
     "okay,", "ok,", "ok!", "let me", "first,", "first,", "looking at",
     "i need to", "wait,", "alright,", "so,", "now,", "hmm", "well,",
     "let's", "let me unpack", "i must", "i should", "in this case",
-    "josh is asking", "the user", "from the", "according to",
+    "owner is asking", "the user", "from the", "according to",
     "important:", "note:", "task description", "so i should",
 )
 

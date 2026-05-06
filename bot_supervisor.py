@@ -856,7 +856,7 @@ def chamar_llm(system: str, user: str, max_tokens: int = 400) -> str | None:
 def _desktop_path() -> Path:
     """Retorna o caminho real do Desktop de OWNER."""
     for d in [
-        Path.home() / "OneDrive - MEDSENIOR" / "Área de Trabalho",
+        Path.home() / "OneDrive" / "Área de Trabalho",
         Path.home() / "Desktop",
         Path.home() / "OneDrive" / "Desktop",
     ]:
@@ -889,17 +889,17 @@ def _salvar_nav_state(usuario: str, pasta: Path):
         pass
 
 _ATALHOS_PASTA = {
-    "desktop":    [Path.home() / "OneDrive - MEDSENIOR" / "Área de Trabalho",
+    "desktop":    [Path.home() / "OneDrive" / "Área de Trabalho",
                    Path.home() / "OneDrive" / "Desktop",
                    Path.home() / "Desktop"],
-    "area de trabalho": [Path.home() / "OneDrive - MEDSENIOR" / "Área de Trabalho",
+    "area de trabalho": [Path.home() / "OneDrive" / "Área de Trabalho",
                          Path.home() / "Desktop"],
     "downloads":  [Path.home() / "Downloads"],
     "documentos": [Path.home() / "Documents"],
     "documents":  [Path.home() / "Documents"],
     "imagens":    [Path.home() / "Pictures"],
     "pictures":   [Path.home() / "Pictures"],
-    "onedrive":   [Path.home() / "OneDrive - MEDSENIOR", Path.home() / "OneDrive"],
+    "onedrive":   [Path.home() / "OneDrive", Path.home() / "OneDrive"],
 }
 
 _PASTAS_BLOQUEADAS = {
@@ -1357,7 +1357,7 @@ def executar_pedido(pedido: str, usuario: str = "OWNER") -> str | None:
     # Apagar/excluir mensagens do bot
     if any(x in p for x in ["apag", "exclu", "delet", "remov"]) and "mensag" in p:
         # Determina usuário alvo (padrão: OWNER)
-        usuario = "USER2" if "user2" in p else "OWNER"
+        usuario = "USER2" if "user2" in p.lower() else "OWNER"
 
         # Descobre o escopo temporal: hoje, ontem, ambos, ou tudo
         hoje     = time.strftime("%d/%m/%Y")
@@ -1448,7 +1448,7 @@ def executar_pedido(pedido: str, usuario: str = "OWNER") -> str | None:
 
         desktop_paths = [
             Path.home() / "Desktop",
-            Path.home() / "OneDrive - MEDSENIOR" / "Área de Trabalho",
+            Path.home() / "OneDrive" / "Área de Trabalho",
             Path.home() / "OneDrive" / "Desktop",
         ]
         for nome_arq in candidatos:
@@ -1783,7 +1783,7 @@ def executar_tool(nome: str, args: dict) -> str:
             raw = args.get("caminho", "")
             # Normaliza caminhos relativos ou incompletos para o Desktop real
             _desktops = [
-                Path.home() / "OneDrive - MEDSENIOR" / "Área de Trabalho",
+                Path.home() / "OneDrive" / "Área de Trabalho",
                 Path.home() / "Desktop",
                 Path.home() / "OneDrive" / "Desktop",
             ]
