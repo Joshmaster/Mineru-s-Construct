@@ -91,7 +91,7 @@ CLAUDE CODE/ollama_fallback.py
 # ── Configs pessoais (nao versionar) ─────────────────────────────────────────
 link-bot/config/config.json
 DISCORD/usuarios_extra.json
-DISCORD/files/foto_owner.jpg
+DISCORD/files/foto_*.jpg
 DISCORD/files/comida.jpg
 DISCORD/files/teste.json
 
