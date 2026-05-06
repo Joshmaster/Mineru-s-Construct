@@ -72,7 +72,7 @@ fallback:
   # O proxy exibe ⚠ nesses modelos e remove as tools da requisicao automaticamente
   openrouter:
     endpoint: https://openrouter.ai/api/v1/chat/completions
-    api_key: REDACTED
+    api_key: ${OPENROUTER_KEY}
     models:
       # --- GRATUITOS — verificados em abril/2026 ---
       - nvidia/nemotron-3-super-120b-a12b:free
@@ -94,7 +94,7 @@ fallback:
   # Modelos verificados em abril/2026 (sem os deprecados)
   groq:
     endpoint: https://api.groq.com/openai/v1/chat/completions
-    api_key: REDACTED
+    api_key: ${GROQ_KEY}
     models:
       # --- COM COTA DIARIA GRATUITA ---
       - llama-3.3-70b-versatile

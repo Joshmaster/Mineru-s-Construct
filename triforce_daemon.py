@@ -3,7 +3,6 @@
 """
 triforce_daemon.py — linha direta OWNER <-> Claude Code via Discord/WhatsApp.
 Usa `claude --print --continue` para retomar esta sessao com contexto completo.
-Fallback: Groq (instantaneo) se o --continue falhar ou demorar.
 """
 import json
 import os
@@ -12,6 +11,10 @@ import sys
 import time
 import urllib.request
 from pathlib import Path
+
+CREDENTIALS_PATH = Path.home() / ".claude" / ".credentials.json"
+TOKEN_ALERT_MINS = 120   # alertar quando restar menos que isso
+TOKEN_CHECK_SECS = 1800  # checar a cada 30 minutos
 
 if sys.platform == "win32":
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -64,6 +67,19 @@ Nao se apresente como IA, chatbot, Claude, programa ou sistema. Nao invente conc
 def log(msg: str):
     ts = time.strftime("%Y-%m-%d %H:%M:%S")
     print(f"[{ts}] TRIFORCE | {msg}", flush=True)
+
+
+def checar_token_expiry() -> int | None:
+    """Retorna minutos restantes do token OAuth, ou None se nao conseguir ler."""
+    try:
+        data = json.loads(CREDENTIALS_PATH.read_text(encoding="utf-8"))
+        expires_at = data.get("claudeAiOauth", {}).get("expiresAt")
+        if not expires_at:
+            return None
+        restante_ms = expires_at - (time.time() * 1000)
+        return int(restante_ms / 60000)
+    except Exception:
+        return None
 
 
 def _limpar_output(texto: str) -> str:
@@ -220,32 +236,39 @@ def processar_item(item: dict) -> str:
     usuario = item.get("usuario", "OWNER")
     canal   = item.get("canal", "discord")
 
-    # Tenta primeiro: claude --continue (eu, com contexto desta sessao)
+    # TRIFORCE deve falhar visivelmente; nao mascarar erro 401/CLI com LLM comum.
     resposta = chamar_claude_continue(pedido, canal)
-
-    # Fallback: Groq instantaneo
-    if not resposta:
-        log("Fallback -> Groq")
-        hist = carregar_historico(canal, usuario)
-        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
-        messages += hist
-        messages.append({"role": "user", "content": pedido})
-        resposta = chamar_groq(messages) or "Nao consegui responder agora, tenta de novo."
-        hist.append({"role": "user",      "content": pedido})
-        hist.append({"role": "assistant", "content": resposta})
-        salvar_historico(canal, usuario, hist)
-
-    return resposta
+    return resposta or "TRIFORCE falhou antes de responder. Nao usei fallback; precisa resolver o erro original do Claude/401."
 
 
 # ── Loop ──────────────────────────────────────────────────────────────────────
 
 def main():
-    log(f"Iniciado. Groq: {GROQ_MODELS[0]}  |  poll: {POLL_SECS}s")
+    log(f"Iniciado. Sem fallback LLM  |  poll: {POLL_SECS}s")
     HISTORY_DIR.mkdir(exist_ok=True)
+
+    _ultima_checagem_token = 0.0
+    _alerta_token_enviado  = False
 
     while True:
         time.sleep(POLL_SECS)
+
+        agora = time.time()
+        if agora - _ultima_checagem_token >= TOKEN_CHECK_SECS:
+            _ultima_checagem_token = agora
+            mins = checar_token_expiry()
+            if mins is not None and mins < TOKEN_ALERT_MINS:
+                log(f"TOKEN EXPIRA EM {mins} min — alertando OWNER")
+                if not _alerta_token_enviado:
+                    aviso = (
+                        f"⚠️ Token Claude expira em {mins} min. "
+                        "Faz qualquer pergunta pro TRIFORCE ou roda `claude` no terminal pra renovar."
+                    )
+                    enviar_discord("DISCORD_OWNER_USERNAME", aviso)
+                    enviar_whatsapp("", aviso)
+                    _alerta_token_enviado = True
+            else:
+                _alerta_token_enviado = False
 
         fila = ler_fila()
         if not fila:

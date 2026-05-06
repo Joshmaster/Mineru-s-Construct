@@ -11,17 +11,11 @@ import urllib.request
 import urllib.error
 
 # ── Chaves ────────────────────────────────────────────────────────────────────
-OPENROUTER_KEYS = [
-    "REDACTED",
-    "REDACTED",
-    "REDACTED",
-]
-GROQ_KEYS = [
-    "REDACTED",
-    "REDACTED",
-    "REDACTED",
-    "REDACTED",
-]
+try:
+    from hyrule_env import OPENROUTER_KEYS, GROQ_KEYS
+except ImportError:
+    OPENROUTER_KEYS = []
+    GROQ_KEYS = []
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

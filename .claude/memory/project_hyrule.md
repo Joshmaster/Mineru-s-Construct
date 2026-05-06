@@ -24,7 +24,7 @@ Todos os agentes ficam em `C:/Users/OWNER/Agents/`.
 - **Watchdog embutido**: verifica o bot a cada 30s e reinicia automaticamente se cair
 - **Fluxo de resolução (ordem de prioridade):**
   1. `executar_pedido()` — Python puro, zero tokens (padrões hardcoded + navegação de pastas)
-  2. `executar_qwen_react()` — qwen2.5:1.5b ReAct loop (até 5 rodadas, max 3 tools filtradas)
+  2. `executar_qwen_react()` — qwen2.5:7b ReAct loop (até 5 rodadas, tools filtradas)
   3. `chamar_agente_tools()` — OpenRouter (gpt-oss-20b → gpt-oss-120b → nemotron → trinity → llama → gemma)
   4. `chamar_groq_tools()` — Groq 0.3s
   5. `enfileirar_para_claude()` — TRIFORCE como último recurso
@@ -51,15 +51,32 @@ Todos os agentes ficam em `C:/Users/OWNER/Agents/`.
 - **`!Link acorde`** — reset geral sem depender de ninguém
 - **TRIFORCE** — só para coisas complexas (debug, edição de código, análise)
 
-### Watcher (`watch_discord_queue.py`)
+### TRIFORCE daemon (`triforce_daemon.py`)
 - Polling a cada 2s em `claude_queue.json`
+- Usa `claude --print --continue --dangerously-skip-permissions --no-session-persistence --output-format json`
+- Responde no canal do item: Discord (`localhost:7331`) ou WhatsApp (`localhost:7332`)
+- Não usa fallback LLM para mascarar erro do Claude; falha aparece explicitamente
+- Lê `~/.claude/.credentials.json` e alerta OWNER quando o token OAuth resta menos de 120 min
+
+### MAJORA watcher (`watch_codex_queue.py`)
+- Polling a cada 2s em `codex_queue.json`
+- Usa `codex exec` para pedidos MAJORA
+- Responde no canal do item: Discord (`localhost:7331`) ou WhatsApp (`localhost:7332`)
+- Usa `.majora_processing.lock` para evitar processamento paralelo/recursivo
+- Lock é considerado stale após 15 min ou se o PID morreu
+
+### Watcher interativo (`watch_discord_queue.py`)
+- Polling a cada 1s em `claude_queue.json`
 - exit code 2 → acorda Claude Code (TRIFORCE)
 - 5 slots paralelos via asyncRewake nos hooks do Claude Code
+- Respeita `canal`; WhatsApp responde via `localhost:7332`
 
 ### Proxy Hyrule (`CLAUDE CODE/proxy.py`) — porta 8765
 
-### Fallback Ollama (`CLAUDE CODE/ollama_fallback.py`)
-- Processa `claude_queue.json` quando Claude Code não está ativo
+### Claude Code CLI
+- Instalado via npm global no nvm, sem `sudo npm -g`
+- Binário atual: `~/.nvm/versions/node/v22.22.2/bin/claude`
+- Auto-update validado em 2026-05-06: enabled, permissões OK, canal latest
 
 ## Modelos LLMs
 
@@ -79,7 +96,7 @@ Todos os agentes ficam em `C:/Users/OWNER/Agents/`.
 - Headers obrigatórios para não ser bloqueado pelo Cloudflare
 
 ### Ollama local
-- `qwen2.5:1.5b` — executor principal de tools no supervisor
+- `qwen2.5:7b` — executor principal de tools no supervisor
 - Tool filtering: max 3 tools por pedido (`_selecionar_tools()`)
 
 ## HTTP API do bot (porta 7331)
@@ -97,9 +114,22 @@ Todos os agentes ficam em `C:/Users/OWNER/Agents/`.
 ## Scripts de checagem
 - `startup_services.py restart` — para tudo, limpa memória, apaga msgs Discord, reinicia
 - `startup_services.py start` — inicia só o que estiver parado
-- `check_llms.py` — valida daemons
+- `check_llms.py` — valida daemons e lê chaves de `hyrule_env.py`
 - `check_discord_logs.py` — lê conversas recentes
 - `check_claude_queue.py` — lê e limpa fila
+
+## Serviços gerenciados por `startup_services.py`
+- Hyrule Proxy (`CLAUDE CODE/proxy.py --serve`) — porta 8765
+- Discord bot (`DISCORD/link_discord.py`) — porta 7331
+- Supervisor (`bot_supervisor.py`)
+- WhatsApp bot (`python3 -m bot.main`) — porta 7332
+- TRIFORCE daemon (`triforce_daemon.py`)
+- MAJORA watcher (`watch_codex_queue.py`)
+
+## Arquivos de segurança
+- `hyrule_env.py` fica fora do git
+- `.claude/.credentials.json` fica fora do git
+- `CLAUDE CODE/HYRULE.md` e `CLAUDE CODE/global/HYRULE.md` usam placeholders `${OPENROUTER_KEY}` / `${GROQ_KEY}` na versão versionada
 
 ## Hooks (Claude Code settings.json)
 ```

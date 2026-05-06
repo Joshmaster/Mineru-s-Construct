@@ -81,22 +81,22 @@ Se o novo agent não falar formato Anthropic nativamente, há duas opções:
 **Este é o arquivo mais importante do projeto.**
 
 - System prompt completo (persona Link, regras de código, idioma obrigatório)
-- Bloco YAML com todas as chaves de API e lista de modelos por provider
+- Bloco YAML com placeholders de chaves de API e lista de modelos por provider
 - Lido automaticamente por `proxy.py`, `hyrule_fallback.py` e `universal_agent.py`
 
 **Localização:** `C:\Users\OWNER\.claude\HYRULE.md`
 
 ---
 
-## 5. Chaves de API (configuradas no HYRULE.md)
+## 5. Chaves de API
 
 | Provider | Endpoint | Prefixo da chave |
 |---|---|---|
 | Ollama | `http://localhost:11434/api/chat` | sem chave (local) |
-| OpenRouter | `https://openrouter.ai/api/v1/chat/completions` | `OPENROUTER_KEY` |
-| Groq | `https://api.groq.com/openai/v1/chat/completions` | `GROQ_KEY` |
+| OpenRouter | `https://openrouter.ai/api/v1/chat/completions` | `OPENROUTER_KEYS` em `hyrule_env.py` |
+| Groq | `https://api.groq.com/openai/v1/chat/completions` | `GROQ_KEYS` em `hyrule_env.py` |
 
-> **Atenção:** Rotacione as chaves se este arquivo sair do ambiente local.
+Chaves reais ficam fora do git. Use `setup.sh` para gerar `hyrule_env.py` a partir de variáveis de ambiente.
 
 ---
 

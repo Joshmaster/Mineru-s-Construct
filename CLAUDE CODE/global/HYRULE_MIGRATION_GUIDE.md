@@ -372,8 +372,8 @@ link        # abre menu de provider → sobe proxy → abre agent
 
 | Serviço | Chave (prefixo) | Onde revogar |
 |---|---|---|
-| OpenRouter | `OPENROUTER_KEY` | openrouter.ai → Keys |
-| Groq | `GROQ_KEY` | console.groq.com → API Keys |
+| OpenRouter | `OPENROUTER_KEY` | openrouter.ai -> Keys |
+| Groq | `GROQ_KEY` | console.groq.com -> API Keys |
 
 ---
 

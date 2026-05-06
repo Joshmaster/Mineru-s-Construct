@@ -5,29 +5,34 @@ type: project
 ---
 
 ## O que estava em andamento
-Correções aplicadas no fluxo TRIFORCE/MAJORA e no autostart do Hyrule.
+Atualização completa do projeto no GitHub: código, documentação de instalação e configuração atual.
 
-## O que ficou pendente
-Nenhum bloqueio conhecido.
+## O que foi alterado
+- `README.md` e `SETUP.md` reescritos para refletir Ubuntu atual, nvm/Node 22, Claude Code auto-update, systemd, portas, filas, TRIFORCE, MAJORA e segurança.
+- `check_llms.py` deixou de ter chaves hardcoded e agora lê `hyrule_env.py`.
+- `CLAUDE CODE/HYRULE.md` e `CLAUDE CODE/global/HYRULE.md` foram saneados com placeholders de chave.
+- `CLAUDE CODE/proxy.py` e `CLAUDE CODE/global/hyrule_fallback.py` agora resolvem placeholders usando `hyrule_env.py` ou env vars.
+- `watch_codex_queue.py` tem lock `.majora_processing.lock` para evitar processamento paralelo/recursivo.
+- `triforce_daemon.py` não usa fallback LLM para mascarar falha do Claude e alerta quando token OAuth está perto de expirar.
+- Memórias do projeto atualizadas, incluindo Ollama atual `qwen2.5:7b`.
+- Remote local do git trocado para URL sem token.
+
+## Validação
+- `python3 -m py_compile` passou para scripts alterados.
+- Busca por tokens reais em arquivos versionados não encontrou segredos.
+- `check_llms.py` mostrou Discord, proxy, Ollama, OpenRouter e Groq respondendo.
+- `claude update` confirmou Claude Code `2.1.131` atualizado.
 
 ## Estado dos serviços
-`hyrule.service` está habilitado no systemd e foi validado com restart pelo próprio systemd.
+- Hyrule Proxy: rodando.
+- Discord bot: online.
+- Supervisor: rodando.
+- WhatsApp bot: rodando.
+- TRIFORCE daemon: rodando.
+- MAJORA watcher: rodando.
 
-Serviços ativos:
-- Hyrule Proxy em `127.0.0.1:8765`
-- Discord HTTP API em `127.0.0.1:7331`
-- Supervisor
-- WhatsApp HTTP API em `127.0.0.1:7332`
-- TRIFORCE daemon
-- MAJORA watcher
-- Ollama em `127.0.0.1:11434`
-
-## Notas rápidas
-- `!MAJORA` no Discord agora entra direto em `[MAJORA-PEDIDO]` e não depende do LLM.
-- O supervisor não drena mais `codex_queue.json`; só o watcher da MAJORA consome a fila.
-- WhatsApp não repete mais o texto do pedido nas mensagens de acionamento de TRIFORCE/MAJORA.
-- `startup_services.py` agora sobe processos desacoplados, gerencia proxy, evita duplicar MAJORA e mostra proxy/majora no status.
-- `CLAUDE CODE/HYRULE.md` tem alteração local de chave OpenRouter e não deve ser commitado.
+## Pendente
+- Fazer commit e push se ainda não tiver sido feito nesta sessão.
 
 ---
 *Atualizado ao encerrar cada sessão. Não acumula — sobrescreve.*

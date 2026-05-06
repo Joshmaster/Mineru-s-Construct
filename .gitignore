@@ -21,6 +21,7 @@ token_usage.json
 token_usage.log
 .triforce_daemon_pid
 .majora_pid
+.majora_processing.lock
 .proxy_pid
 DISCORD/.bot_pid
 DISCORD/.supervisor_pid

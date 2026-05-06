@@ -1,138 +1,170 @@
-# Mineru's Construct — Sistema Hyrule
+# Mineru's Construct - Sistema Hyrule
 
-Bot Discord (Link) + Bot WhatsApp integrados a um supervisor de LLMs com hierarquia de fallback automático: OpenRouter → Groq → Ollama local. Inclui daemon Triforce para fila de pedidos via Discord/WhatsApp e gerenciador de serviços unificado.
+Sistema pessoal do OWNER: bot Discord (Link), bot WhatsApp, supervisor de LLMs,
+Hyrule Proxy, TRIFORCE daemon e MAJORA watcher.
 
-**Dono:** OWNER (`OWNER_EMAIL`)  
+O runtime atual fica em `~/Agents` num Ubuntu Server. As credenciais reais ficam
+fora do git em `hyrule_env.py`, gerado por `setup.sh`.
 
----
+Repo: https://github.com/OWNERmaster/Mineru-s-Construct
 
-## Início rápido — SSH → Claude Code
-
-Após conectar via SSH, execute:
+## Retomar pelo SSH
 
 ```bash
 cd ~/Agents && claude
 ```
 
-Isso carrega automaticamente:
-- `CLAUDE.md` — identidade, regras e hierarquia de LLMs
-- `.claude/memory/` — arquitetura do Hyrule, rotinas, feedbacks
-- `.claude/settings.local.json` — permissões
+Isso carrega:
 
-O Claude Code acorda com contexto completo do projeto. Se quiser retomar o estado da sessão anterior, diga **"claude link"**.
+- `CLAUDE.md` e `AGENTS.md`: identidade Link e regras de trabalho
+- `.claude/memory/`: memoria do projeto e handoff da sessao anterior
+- `.claude/settings.local.json`: permissoes locais
 
-Para adicionar o atalho permanente no shell:
+Atalho opcional:
 
 ```bash
-echo "alias hyrule='cd ~/Agents && claude'" >> ~/.bashrc && source ~/.bashrc
+echo "alias hyrule='cd ~/Agents && claude'" >> ~/.bashrc
+source ~/.bashrc
 ```
 
-Depois é só digitar `hyrule` para abrir.
+## Arquitetura
 
----
-**Servidor alvo:** Ubuntu Server 24.04 LTS  
-**Repo:** https://github.com/OWNERmaster/Mineru-s-Construct
+```text
+~/Agents/
+├── startup_services.py        # start/stop/restart/status de todos os servicos
+├── bot_supervisor.py          # supervisor Discord + tool calling + fallback LLM
+├── triforce_daemon.py         # claude_queue.json -> claude --print --continue
+├── watch_codex_queue.py       # codex_queue.json -> codex exec
+├── watch_discord_queue.py     # watcher asyncRewake para sessoes interativas
+├── check_llms.py              # healthcheck de Discord, proxy, Ollama e LLMs
+├── setup.sh                   # gera hyrule_env.py a partir de env vars
+├── hyrule_env.example.py      # template sem segredos
+├── hyrule_env.py              # credenciais locais, ignorado pelo git
+│
+├── DISCORD/
+│   └── link_discord.py        # bot Discord + HTTP API :7331
+│
+├── link-bot/
+│   ├── bot/main.py            # bot WhatsApp + HTTP API :7332
+│   └── config/config.json     # owner/allow list do WhatsApp
+│
+└── CLAUDE CODE/
+    └── proxy.py               # Hyrule Proxy :8765
+```
 
----
+## Fluxo de custo
 
-## Para Claude Code — instalação no Ubuntu
+O supervisor sempre tenta a camada mais barata primeiro:
 
-> Se você está lendo isto numa sessão nova, siga os passos abaixo na ordem.
+```text
+1. OpenRouter gpt-oss/free models
+2. Groq llama/kimi
+3. Ollama qwen2.5:7b local
+4. TRIFORCE/MAJORA apenas quando escalado
+```
 
-### Pré-requisitos que devem estar instalados antes de começar
+O TRIFORCE nao mascara erro do Claude com outro LLM. Se `claude --continue`
+falhar, ele retorna erro visivel para corrigir a causa original.
+
+## Servicos e portas
+
+| Servico | Porta/arquivo |
+|---|---|
+| Discord HTTP API | `localhost:7331` |
+| WhatsApp HTTP API | `localhost:7332` |
+| Hyrule Proxy | `localhost:8765` |
+| Ollama | `localhost:11434` |
+| TRIFORCE queue | `claude_queue.json` |
+| MAJORA queue | `codex_queue.json` |
+| MAJORA lock | `.majora_processing.lock` |
+
+## Instalacao curta
+
+Veja o passo a passo completo em [SETUP.md](SETUP.md).
+
+Resumo:
 
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3 python3-pip git curl wget procps xdg-utils
-```
+sudo apt install -y python3 python3-pip python3-venv git curl wget procps xdg-utils
 
-### 1. Instalar Ollama e baixar modelo local
-
-```bash
 curl -fsSL https://ollama.com/install.sh | sh
-sudo systemctl enable ollama && sudo systemctl start ollama
-ollama pull qwen2.5:1.5b
-ollama list  # deve mostrar qwen2.5:1.5b
-```
+sudo systemctl enable --now ollama
+ollama pull qwen2.5:7b
 
-### 2. Instalar Claude Code CLI
-
-```bash
-curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
-sudo apt install -y nodejs
-sudo npm install -g @anthropic-ai/claude-code
+curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
+source ~/.bashrc
+nvm install 22
+nvm use 22
+npm i -g @anthropic-ai/claude-code
 claude --version
-```
 
-### 3. Clonar o repositório
-
-```bash
 git clone https://github.com/OWNERmaster/Mineru-s-Construct.git ~/Agents
 cd ~/Agents
-```
 
-### 4. Instalar dependências Python
-
-```bash
-pip3 install discord.py aiohttp requests flask neonize qrcode httpx segno
-```
-
-### 5. Gerar hyrule_env.py com as credenciais
-
-As credenciais estão salvas como **GitHub Secrets** no repositório.  
-OWNER deve exportá-las e rodar o script:
-
-```bash
-# OWNER exporta as variáveis (vindas dos GitHub Secrets ou do arquivo salvo)
 export DISCORD_TOKEN="..."
-export OPENROUTER_KEY_1="..." OPENROUTER_KEY_2="..." OPENROUTER_KEY_3="..."
-export GROQ_KEY_1="..."       GROQ_KEY_2="..."       GROQ_KEY_3="..."
-export WA_OWNER="..."         WA_ALLOW_FROM="NUMERO1,NUMERO2"
+export OPENROUTER_KEY_1="..."
+export OPENROUTER_KEY_2="..."
+export OPENROUTER_KEY_3="..."
+export GROQ_KEY_1="..."
+export GROQ_KEY_2="..."
+export GROQ_KEY_3="..."
+export WA_OWNER="5537..."
+export WA_ALLOW_FROM="5537...,5537..."
+bash setup.sh
 
-# Gera hyrule_env.py + instala deps
-bash ~/Agents/setup.sh
-```
-
-### 6. Configurar bot WhatsApp — editar config.json
-
-```bash
-nano ~/Agents/link-bot/config/config.json
-```
-
-Preencher `OWNER` e `ALLOW_FROM` com os números do OWNER (com DDI, sem +).  
-`SESSION_PATH` e `STORAGE_PATH` já estão como caminhos relativos — não mudar.
-
-### 7. Parear WhatsApp (primeira vez)
-
-```bash
-cd ~/Agents/link-bot
-python3 -m bot.main
-```
-
-QR salvo em `.linkbot/qr.png`. Para ver via SSH:
-```bash
-scp usuario@servidor:~/Agents/link-bot/.linkbot/qr.png ~/Desktop/
-```
-
-Após parear: `Ctrl+C`. Sessão salva em `.linkbot/session.sqlite`.
-
-> **Se migrando de outro servidor:** copiar o `session.sqlite` evita o re-pareamento:
-> ```bash
-> scp servidor_antigo:~/Agents/link-bot/.linkbot/session.sqlite ~/Agents/link-bot/.linkbot/
-> ```
-
-### 8. Iniciar todos os serviços
-
-```bash
-cd ~/Agents
 python3 startup_services.py start
 python3 startup_services.py status
 ```
 
-### 9. Configurar autostart com systemd
+## Claude Code CLI
+
+Configuracao validada no servidor em 2026-05-06:
+
+```text
+Install method: npm global via nvm
+Node: v22.22.2
+Claude Code: 2.1.131
+Auto-updates: enabled
+Update permissions: Yes
+Auto-update channel: latest
+```
+
+Comandos uteis:
 
 ```bash
-sudo tee /etc/systemd/system/hyrule.service > /dev/null <<EOF
+claude --version
+claude update
+claude doctor
+```
+
+## Operacao
+
+```bash
+python3 ~/Agents/startup_services.py status
+python3 ~/Agents/startup_services.py start
+python3 ~/Agents/startup_services.py restart
+python3 ~/Agents/startup_services.py restart-nolimp
+python3 ~/Agents/startup_services.py stop
+```
+
+Logs principais:
+
+```bash
+tail -f ~/Agents/DISCORD/supervisor_out.log
+tail -f ~/Agents/DISCORD/bot_error.log
+tail -f ~/Agents/link-bot/.linkbot/whatsapp_err.log
+tail -f ~/Agents/triforce_daemon.log
+tail -f ~/Agents/majora.log
+tail -f ~/Agents/CLAUDE\ CODE/proxy_runtime.log
+```
+
+## Systemd
+
+O servico recomendado chama `startup_services.py`, que sobe proxy, Discord,
+supervisor, WhatsApp, TRIFORCE e MAJORA.
+
+```ini
 [Unit]
 Description=Hyrule Bot System
 Wants=network-online.target ollama.service
@@ -140,92 +172,39 @@ After=network-online.target ollama.service
 
 [Service]
 Type=oneshot
-User=$USER
-WorkingDirectory=$HOME/Agents
-ExecStart=/usr/bin/python3 $HOME/Agents/startup_services.py start
-ExecReload=/usr/bin/python3 $HOME/Agents/startup_services.py restart-nolimp
-ExecStop=/usr/bin/python3 $HOME/Agents/startup_services.py stop
+User=OWNER_USER
+WorkingDirectory=~/Agents
+ExecStart=/usr/bin/python3 ~/Agents/startup_services.py start
+ExecReload=/usr/bin/python3 ~/Agents/startup_services.py restart-nolimp
+ExecStop=/usr/bin/python3 ~/Agents/startup_services.py stop
 RemainAfterExit=yes
 TimeoutStartSec=120
 TimeoutStopSec=60
 
 [Install]
 WantedBy=multi-user.target
-EOF
-
-sudo systemctl daemon-reload
-sudo systemctl enable hyrule
-sudo systemctl start hyrule
-sudo systemctl status hyrule
 ```
 
----
+## Seguranca
 
-## Arquitetura
+Nao commitar:
 
-```
-~/Agents/
-├── startup_services.py       ← start / stop / restart / status
-├── bot_supervisor.py         ← supervisor Discord + roteamento LLMs
-├── triforce_daemon.py        ← fila de pedidos → Claude Code
-├── link_console.py           ← console local
-├── hyrule_env.py             ← credenciais (NÃO está no git)
-├── hyrule_env.example.py     ← template
-├── setup.sh                  ← gera hyrule_env.py a partir de env vars
-│
-├── DISCORD/
-│   └── link_discord.py       ← bot Discord — HTTP API :7331
-│
-└── link-bot/
-    ├── bot/main.py           ← bot WhatsApp — HTTP API :7332
-    ├── bot/skills/           ← clima, cep, cotação, lembretes...
-    └── config/config.json    ← número dono + allow list
-```
+- `hyrule_env.py`
+- `.claude/.credentials.json`
+- tokens OAuth, OpenRouter, Groq, Discord ou GitHub
+- sessoes WhatsApp em `link-bot/.linkbot/`
+- filas e locks de runtime
 
-### Hierarquia de LLMs
-
-```
-OpenRouter (free)  →  Groq (free, 0.3s)  →  Ollama qwen2.5:1.5b (local)  →  Claude Code
-```
-
-### Portas
-
-| Serviço | Porta |
-|---|---|
-| Discord HTTP API | 7331 |
-| WhatsApp HTTP API | 7332 |
-| Hyrule Proxy (Claude Code) | 8765 |
-| Ollama | 11434 |
-
----
-
-## Comandos do dia a dia
-
-```bash
-# Status
-python3 ~/Agents/startup_services.py status
-
-# Restart completo (limpa histórico)
-python3 ~/Agents/startup_services.py restart
-
-# Logs em tempo real
-tail -f ~/Agents/DISCORD/supervisor_out.log
-tail -f ~/Agents/link-bot/.linkbot/whatsapp_err.log
-tail -f ~/Agents/triforce_daemon.log
-
-# Testar APIs
-curl http://localhost:7331/status
-curl http://localhost:11434/api/tags
-```
-
----
+Se algum segredo aparecer no git, revogue e gere outro.
 
 ## Troubleshooting
 
-| Problema | Solução |
+| Problema | Acao |
 |---|---|
-| Bot Discord não conecta | Verificar `DISCORD_TOKEN` em `hyrule_env.py` e Intents no Developer Portal |
-| WhatsApp pede QR toda vez | `session.sqlite` perdido — re-executar `python3 -m bot.main` |
-| Ollama não responde | `sudo systemctl restart ollama` + `ollama list` |
-| 429 Groq/OpenRouter | Rate limit — supervisor rotaciona chaves automaticamente |
-| `pgrep` não encontrado | `sudo apt install -y procps` |
+| Discord offline | Ver `DISCORD_TOKEN`, intents do bot e `curl localhost:7331/status` |
+| WhatsApp pede QR | Parear de novo ou restaurar `link-bot/.linkbot/session.sqlite` |
+| Ollama sem modelo | `ollama pull qwen2.5:7b` |
+| Proxy fora | `python3 startup_services.py restart-nolimp` e log `proxy_runtime.log` |
+| Claude auto-update falha | `claude doctor`, depois `npm i -g @anthropic-ai/claude-code` |
+| TRIFORCE 401 | Rodar `claude` interativo e renovar OAuth |
+| MAJORA duplicando | Conferir `.majora_processing.lock` e `majora.log` |

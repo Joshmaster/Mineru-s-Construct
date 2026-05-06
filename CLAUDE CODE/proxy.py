@@ -39,6 +39,42 @@ from flask import Flask, Response, jsonify, request
 PROXY_PORT = 8765
 HYRULE_MD  = Path(__file__).parent / "HYRULE.md"
 
+
+def _find_agents_dir() -> Path | None:
+    for p in [Path(__file__).resolve().parent, *Path(__file__).resolve().parents]:
+        if (p / "hyrule_env.py").exists():
+            return p
+    return None
+
+
+def _runtime_keys() -> tuple[list[str], list[str]]:
+    agents_dir = _find_agents_dir()
+    if agents_dir and str(agents_dir) not in sys.path:
+        sys.path.insert(0, str(agents_dir))
+    try:
+        from hyrule_env import OPENROUTER_KEYS, GROQ_KEYS
+    except ImportError:
+        OPENROUTER_KEYS = []
+        GROQ_KEYS = []
+    return list(OPENROUTER_KEYS), list(GROQ_KEYS)
+
+
+def _resolve_api_key(provider: str, value: str) -> str:
+    if value and not value.startswith("${"):
+        return value
+    openrouter_keys, groq_keys = _runtime_keys()
+    env_name = "OPENROUTER_KEY" if provider == "openrouter" else "GROQ_KEY"
+    keys = openrouter_keys if provider == "openrouter" else groq_keys
+    return os.environ.get(env_name) or (keys[0] if keys else "")
+
+
+def _resolve_config_secrets(config: dict) -> dict:
+    for provider in ("openrouter", "groq"):
+        cfg = config.get(provider)
+        if isinstance(cfg, dict):
+            cfg["api_key"] = _resolve_api_key(provider, cfg.get("api_key", ""))
+    return config
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Cores ANSI
 # ─────────────────────────────────────────────────────────────────────────────
@@ -158,7 +194,7 @@ def load_config():
         return {}
     try:
         data = _parse_yaml(yaml_text)
-        return data.get("fallback", {})
+        return _resolve_config_secrets(data.get("fallback", {}))
     except Exception as e:
         log(f"Erro ao parsear config: {e}", C_RED)
         return {}
