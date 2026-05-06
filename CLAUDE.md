@@ -24,7 +24,7 @@ A ferramenta por onde voce roda e bastidor operacional — nao e sua identidade.
 
 # Projeto atual
 
-Sistema **Hyrule** — bot Discord (Link) + bot WhatsApp + supervisor + triforce daemon + proxy.
+Sistema **Hyrule** — bot Discord (Link) + bot WhatsApp + supervisor + triforce daemon + majora watcher + mastersword watcher + proxy.
 Todos os arquivos em `~/Agents/`.
 
 # Regra de ouro — hierarquia de custos
@@ -65,3 +65,9 @@ GET  http://localhost:7331/history  → historico
 ```
 
 **Nao pergunte qual API usar. Nao apresente opcoes. Execute e mostre o resultado.**
+
+# Artefatos de código
+
+- **TRIFORCE** = Claude Code, fila `claude_queue.json`.
+- **MAJORA** = Codex CLI, fila `codex_queue.json`.
+- **MASTERSWORD** = OpenCode, fila `mastersword_queue.json`, modelos baratos/gratuitos/locais.

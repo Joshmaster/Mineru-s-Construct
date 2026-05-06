@@ -7,6 +7,8 @@ Saída: JSON com systemMessage para exibir no Claude Code.
 """
 import json
 import sys
+import shutil
+import subprocess
 import urllib.request
 import urllib.error
 
@@ -65,6 +67,22 @@ def check_discord():
         if e.code in (404, 405):
             return True, "daemon respondendo"
         return False, f"HTTP {e.code}"
+    except Exception as e:
+        return False, str(e)
+
+
+def check_opencode():
+    exe = shutil.which("opencode")
+    if not exe:
+        return False, "opencode não encontrado"
+    try:
+        r = subprocess.run(
+            [exe, "--version"],
+            capture_output=True, text=True, timeout=10,
+            encoding="utf-8", errors="replace",
+        )
+        version = (r.stdout or r.stderr or "").strip()
+        return r.returncode == 0, version or f"rc={r.returncode}"
     except Exception as e:
         return False, str(e)
 
@@ -138,6 +156,7 @@ if __name__ == "__main__":
         ("Discord Bot   :7331", check_discord),
         ("Hyrule Proxy  :8765", check_proxy),
         ("Ollama        :11434", check_ollama),
+        ("OpenCode      (MASTERSWORD)", check_opencode),
         ("OpenRouter    (remoto)", check_openrouter),
         ("Groq          (remoto)", check_groq),
     ]

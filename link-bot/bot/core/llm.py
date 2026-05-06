@@ -222,6 +222,13 @@ def _processar_tags(reply: str, user_id: str, usuario: str) -> tuple:
             _submeter_tarefa_wpp(t.strip(), usuario, user_id, tipo="majora")
         reply = re.sub(r'\[MAJORA:\s*.+?\]', '', reply, flags=re.IGNORECASE | re.DOTALL).strip()
 
+    # MASTERSWORD — escala pro OpenCode
+    tarefas_ms = re.findall(r'\[MASTERSWORD:\s*(.+?)\]', reply, re.IGNORECASE | re.DOTALL)
+    if tarefas_ms:
+        for t in tarefas_ms:
+            _submeter_tarefa_wpp(t.strip(), usuario, user_id, tipo="mastersword")
+        reply = re.sub(r'\[MASTERSWORD:\s*.+?\]', '', reply, flags=re.IGNORECASE | re.DOTALL).strip()
+
     return reply, feedback
 
 

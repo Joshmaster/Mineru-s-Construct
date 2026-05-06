@@ -3,8 +3,8 @@
 Alvo principal: Ubuntu Server 24.04 LTS em `~/Agents`.
 
 Este guia instala o estado atual do projeto: Discord Link, WhatsApp Link,
-supervisor, Hyrule Proxy, TRIFORCE daemon, MAJORA watcher, Ollama local e
-Claude Code via npm global do nvm.
+supervisor, Hyrule Proxy, TRIFORCE daemon, MAJORA watcher, MASTERSWORD watcher,
+Ollama local, Claude Code e OpenCode via npm global do nvm.
 
 ## 1. Pacotes base
 
@@ -63,14 +63,38 @@ npm i -g @anthropic-ai/claude-code
 claude update
 ```
 
-## 5. Clonar repo
+## 5. OpenCode CLI (MASTERSWORD)
+
+```bash
+npm i -g opencode-ai
+which opencode
+opencode --version
+```
+
+O MASTERSWORD usa OpenCode com modelos baratos/gratis/locais:
+
+```text
+openrouter/openai/gpt-oss-20b:free
+openrouter/google/gemma-4-31b-it:free
+openrouter/nvidia/nemotron-3-super-120b-a12b:free
+ollama/qwen2.5:7b
+```
+
+Config ativa:
+
+```text
+~/.config/opencode/opencode.json
+~/Agents/OPENCODE/mastersword.opencode.json
+```
+
+## 6. Clonar repo
 
 ```bash
 git clone https://github.com/OWNERmaster/Mineru-s-Construct.git ~/Agents
 cd ~/Agents
 ```
 
-## 6. Credenciais
+## 7. Credenciais
 
 Credenciais reais nao entram no git. Gere `hyrule_env.py` com env vars:
 
@@ -100,7 +124,7 @@ Para instalar deps sem regenerar credenciais:
 pip3 install discord.py aiohttp requests flask neonize qrcode httpx segno
 ```
 
-## 7. Discord
+## 8. Discord
 
 No Discord Developer Portal:
 
@@ -115,7 +139,7 @@ Validar API local depois do start:
 curl http://localhost:7331/status
 ```
 
-## 8. WhatsApp
+## 9. WhatsApp
 
 Editar:
 
@@ -159,7 +183,7 @@ Para migrar sem novo QR, copie:
 ~/Agents/link-bot/.linkbot/session.sqlite
 ```
 
-## 9. Subir servicos
+## 10. Subir servicos
 
 ```bash
 cd ~/Agents
@@ -176,6 +200,7 @@ Supervisor: rodando
 WhatsApp bot: rodando
 Triforce: rodando
 Majora: rodando
+Mastersword: rodando
 ```
 
 Comandos:
@@ -190,7 +215,7 @@ python3 startup_services.py stop
 
 `restart` limpa historico e memoria operacional. `restart-nolimp` preserva.
 
-## 10. Systemd
+## 11. Systemd
 
 Criar `/etc/systemd/system/hyrule.service`:
 
@@ -222,7 +247,7 @@ sudo systemctl start hyrule
 sudo systemctl status hyrule
 ```
 
-## 11. Filas e escalonamento
+## 12. Filas e escalonamento
 
 TRIFORCE:
 
@@ -242,12 +267,22 @@ MAJORA:
 - Lock stale: 15 min
 - Canais: Discord e WhatsApp
 
+MASTERSWORD:
+
+- Entrada: `mastersword_queue.json`
+- Executor: `watch_mastersword_queue.py`
+- Comando: `opencode run`
+- Modelos: OpenRouter free -> Groq free -> Ollama local
+- Lock: `.mastersword_processing.lock`
+- Lock stale: 15 min
+- Canais: Discord e WhatsApp
+
 Watcher interativo:
 
 - `watch_discord_queue.py` usa `asyncRewake` para acordar sessoes interativas
 - Respeita campo `canal`; WhatsApp responde em `localhost:7332`
 
-## 12. Healthcheck
+## 13. Healthcheck
 
 ```bash
 python3 check_llms.py
@@ -257,11 +292,13 @@ curl http://localhost:7331/status
 curl http://localhost:7332/status
 curl http://localhost:8765/v1/models
 curl http://localhost:11434/api/tags
+opencode --version
+opencode debug config
 ```
 
 `check_llms.py` le `OPENROUTER_KEYS` e `GROQ_KEYS` de `hyrule_env.py`.
 
-## 13. Logs
+## 14. Logs
 
 ```bash
 tail -f ~/Agents/DISCORD/supervisor_out.log
@@ -271,20 +308,23 @@ tail -f ~/Agents/link-bot/.linkbot/whatsapp.log
 tail -f ~/Agents/link-bot/.linkbot/whatsapp_err.log
 tail -f ~/Agents/triforce_daemon.log
 tail -f ~/Agents/majora.log
+tail -f ~/Agents/mastersword.log
 tail -f ~/Agents/CLAUDE\ CODE/proxy_runtime.log
 ```
 
-## 14. Arquivos que nao vao para o git
+## 15. Arquivos que nao vao para o git
 
 - `hyrule_env.py`
 - `.claude/.credentials.json`
 - `claude_queue.json`
 - `codex_queue.json`
+- `mastersword_queue.json`
 - `.majora_processing.lock`
+- `.mastersword_processing.lock`
 - `link-bot/.linkbot/`
 - logs, pids e historicos de conversa
 
-## 15. Problemas comuns
+## 16. Problemas comuns
 
 | Problema | Solucao |
 |---|---|
@@ -295,6 +335,7 @@ tail -f ~/Agents/CLAUDE\ CODE/proxy_runtime.log
 | Discord offline | Conferir token e intents no Developer Portal |
 | OpenRouter/Groq 429 | Rate limit; supervisor rotaciona chaves automaticamente |
 | MAJORA processando duas vezes | Ver `majora.log` e remover lock stale se necessario |
+| MASTERSWORD falha | `opencode --version`, `opencode debug config`, ver `mastersword.log` |
 
 ## Windows - referencia curta
 

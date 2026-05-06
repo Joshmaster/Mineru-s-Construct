@@ -29,7 +29,7 @@ Quando OWNER disser "vou testar", "ate mais", "vou fechar" ou qualquer sinal de 
 
 # Projeto atual
 
-Sistema **Hyrule** - bot Discord (Link) + bot WhatsApp + supervisor + triforce daemon + proxy.
+Sistema **Hyrule** - bot Discord (Link) + bot WhatsApp + supervisor + triforce daemon + majora watcher + mastersword watcher + proxy.
 Todos os arquivos em `~/Agents/`.
 
 # Regra de ouro - hierarquia de custos
@@ -79,3 +79,9 @@ GET  http://localhost:7331/history  -> historico
 - Use `rg` para buscas quando disponivel.
 - Se precisar escolher entre explicar e executar, execute e depois mostre o resultado.
 - Assuma a continuidade sem pedir contexto repetido se as memorias ja tiverem a resposta.
+
+# Artefatos de código
+
+- **TRIFORCE** = Claude Code, fila `claude_queue.json`.
+- **MAJORA** = Codex CLI, fila `codex_queue.json`.
+- **MASTERSWORD** = OpenCode, fila `mastersword_queue.json`, modelos baratos/gratuitos/locais.

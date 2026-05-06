@@ -333,6 +333,7 @@ client = discord.Client(intents=intents)
 _TAG_RE      = re.compile(r'\[SHEIKAH_SLATE[^\]]*\]', re.IGNORECASE)
 _TRIFORCE_RE = re.compile(r'\[TRIFORCE:\s*(.*?)\]', re.IGNORECASE | re.DOTALL)
 _MAJORA_RE   = re.compile(r'\[MAJORA:\s*(.*?)\]', re.IGNORECASE | re.DOTALL)
+_MASTERSWORD_RE = re.compile(r'\[MASTERSWORD:\s*(.*?)\]', re.IGNORECASE | re.DOTALL)
 _THINK_RE = re.compile(r'<think>.*?</think>', re.DOTALL | re.IGNORECASE)
 
 # Prefixos que indicam raciocínio interno vazado (modelos de reasoning)
@@ -350,6 +351,7 @@ def sanitizar(texto: str) -> str:
     limpo = _TAG_RE.sub('', limpo)          # [SHEIKAH_SLATE: ...]
     limpo = _TRIFORCE_RE.sub('', limpo)     # [TRIFORCE: ...]
     limpo = _MAJORA_RE.sub('', limpo)       # [MAJORA: ...]
+    limpo = _MASTERSWORD_RE.sub('', limpo)  # [MASTERSWORD: ...]
 
     # Se o texto começa com raciocínio, tenta extrair só a resposta real
     primeira = limpo.strip().split('\n')[0].lower().lstrip('*- ')
@@ -511,6 +513,18 @@ async def on_message(message):
         registrar("SYS", "Bot", "Codex", f"[MAJORA-PEDIDO] {pedido_mx}")
         return
 
+    # ── MASTERSWORD: escalação direta para OpenCode, sem passar pelo LLM ─────
+    if re.match(r'^!?\s*(mastersword|opencode)\b', _txt_norm):
+        pedido_ms = re.sub(r'^!?\s*(mastersword|opencode)\s*', '', _txt, flags=re.IGNORECASE).strip()
+        if _txt_norm.strip() == "opencode link":
+            pedido_ms = f"{autor} quer retomar contexto"
+        elif not pedido_ms:
+            pedido_ms = f"{autor} quer falar com a mastersword"
+        await message.channel.send("🗡️ acionando mastersword...")
+        registrar("OUT", "Link", autor, "acionando mastersword...")
+        registrar("SYS", "Bot", "OpenCode", f"[MASTERSWORD-PEDIDO] {pedido_ms}")
+        return
+
     # Atualiza contexto: último arquivo recebido (apenas metadado)
     if anexos_meta:
         _set_ctx(autor, last_file={
@@ -591,6 +605,11 @@ async def on_message(message):
     if majora_match:
         pedido_mx = majora_match.group(1).strip()
         registrar("SYS", "Bot", "Codex", f"[MAJORA-PEDIDO] {pedido_mx}")
+
+    mastersword_match = _MASTERSWORD_RE.search(resposta)
+    if mastersword_match:
+        pedido_ms = mastersword_match.group(1).strip()
+        registrar("SYS", "Bot", "OpenCode", f"[MASTERSWORD-PEDIDO] {pedido_ms}")
 
     resposta_limpa = sanitizar(resposta)
     if resposta_limpa:
@@ -751,6 +770,11 @@ async def rota_chat(request):
         if majora_match:
             pedido_mx = majora_match.group(1).strip()
             registrar("SYS", "Bot", "Codex", f"[MAJORA-PEDIDO] {pedido_mx}")
+
+        mastersword_match = _MASTERSWORD_RE.search(resposta)
+        if mastersword_match:
+            pedido_ms = mastersword_match.group(1).strip()
+            registrar("SYS", "Bot", "OpenCode", f"[MASTERSWORD-PEDIDO] {pedido_ms}")
 
         resposta_limpa = sanitizar(resposta)
         registrar("OUT", "Link", autor, f"[CONSOLE] {resposta_limpa}")

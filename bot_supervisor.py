@@ -31,6 +31,7 @@ DM_SCRIPT    = DISCORD_DIR / "dm.py"
 PERSONA_FILE = BASE / "OPENCODE" / "roaming" / "LINK_PERSONA.md"
 CLAUDE_QUEUE    = BASE / "claude_queue.json"
 CODEX_QUEUE     = BASE / "codex_queue.json"
+MASTERSWORD_QUEUE = BASE / "mastersword_queue.json"
 WPP_TASKS       = BASE / "whatsapp_tasks.json"
 PYTHON       = sys.executable
 
@@ -1521,6 +1522,22 @@ def enfileirar_para_majora(pedido: str, usuario: str, canal: str = "discord"):
     enviar(usuario, "🌑 majora acionada — processando, aguarde...", canal)
 
 
+def enfileirar_para_mastersword(pedido: str, usuario: str, canal: str = "discord"):
+    """Escreve pedido na fila do OpenCode (MASTERSWORD) e notifica o usuário."""
+    fila = []
+    if MASTERSWORD_QUEUE.exists():
+        try:
+            fila = json.loads(MASTERSWORD_QUEUE.read_text(encoding="utf-8"))
+        except Exception:
+            fila = []
+    ts = time.strftime("%Y-%m-%d %H:%M:%S")
+    item_id = f"{int(time.time())}_{usuario}"
+    fila.append({"ts": ts, "id": item_id, "pedido": pedido, "usuario": usuario, "canal": canal})
+    MASTERSWORD_QUEUE.write_text(json.dumps(fila, ensure_ascii=False, indent=2), encoding="utf-8")
+    log(f"FILA -> OpenCode/MASTERSWORD ({canal}): {pedido[:80]}")
+    enviar(usuario, "🗡️ mastersword acionada — processando, aguarde...", canal)
+
+
 def buscar_internet(query: str) -> str:
     """Busca no DuckDuckGo Instant Answer API (sem JS, sem rate limit agressivo)."""
     try:
@@ -2243,6 +2260,9 @@ def monitorar():
                             elif tipo_wpp == "majora":
                                 log(f"WPP MAJORA -> Codex: {pedido_wpp[:80]}")
                                 enfileirar_para_majora(pedido_wpp, usuario_wpp, canal=canal_wpp)
+                            elif tipo_wpp == "mastersword":
+                                log(f"WPP MASTERSWORD -> OpenCode: {pedido_wpp[:80]}")
+                                enfileirar_para_mastersword(pedido_wpp, usuario_wpp, canal=canal_wpp)
                             else:
                                 log(f"WPP SHEIKAH -> supervisor: {pedido_wpp[:80]}")
                                 try:
@@ -2347,6 +2367,24 @@ def monitorar():
                             enfileirar_para_majora(pedido_mx, usuario_mx)
                     except Exception as e:
                         log(f"Erro ao processar MAJORA: {e}")
+
+                # Enfileira MASTERSWORD Discord → OpenCode
+                elif "[SYS]" in linha and "[MASTERSWORD-PEDIDO]" in linha:
+                    try:
+                        pedido_ms = linha.split("[MASTERSWORD-PEDIDO] ")[1].strip()
+                        ts_ms = linha[1:20]
+                        chave_ms = f"{ts_ms}|MASTERSWORD|{pedido_ms}"
+                        if pedido_ja_visto(pedidos_vistos, chave_ms):
+                            log(f"MASTERSWORD duplicada, ignorando: {pedido_ms[:60]}")
+                        else:
+                            with _pedido_lock:
+                                pedidos_vistos[chave_ms] = time.time()
+                                salvar_pedidos_vistos(pedidos_vistos)
+                            usuario_ms = next((u for u in ultima_msg if ultima_msg[u]), "OWNER")
+                            log(f"MASTERSWORD -> OpenCode: {pedido_ms[:80]}")
+                            enfileirar_para_mastersword(pedido_ms, usuario_ms)
+                    except Exception as e:
+                        log(f"Erro ao processar MASTERSWORD: {e}")
 
                 # Detecta resposta ruim
                 elif "[OUT] Link ->" in linha:

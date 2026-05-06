@@ -65,6 +65,16 @@ Todos os agentes ficam em `C:/Users/OWNER/Agents/`.
 - Usa `.majora_processing.lock` para evitar processamento paralelo/recursivo
 - Lock é considerado stale após 15 min ou se o PID morreu
 
+### MASTERSWORD watcher (`watch_mastersword_queue.py`)
+- Polling a cada 2s em `mastersword_queue.json`
+- Usa `opencode run` para pedidos MASTERSWORD
+- Instalação: `npm i -g opencode-ai` (binário `opencode`, versão validada 1.14.39)
+- Config Linux ativa: `~/.config/opencode/opencode.json`
+- Config versionada: `OPENCODE/mastersword.opencode.json`
+- Modelos padrão: OpenRouter free → Groq free → Ollama local (`qwen2.5:7b`)
+- Responde no canal do item: Discord (`localhost:7331`) ou WhatsApp (`localhost:7332`)
+- Usa `.mastersword_processing.lock`; stale após 15 min ou se o PID morreu
+
 ### Watcher interativo (`watch_discord_queue.py`)
 - Polling a cada 1s em `claude_queue.json`
 - exit code 2 → acorda Claude Code (TRIFORCE)
@@ -125,6 +135,7 @@ Todos os agentes ficam em `C:/Users/OWNER/Agents/`.
 - WhatsApp bot (`python3 -m bot.main`) — porta 7332
 - TRIFORCE daemon (`triforce_daemon.py`)
 - MAJORA watcher (`watch_codex_queue.py`)
+- MASTERSWORD watcher (`watch_mastersword_queue.py`)
 
 ## Arquivos de segurança
 - `hyrule_env.py` fica fora do git

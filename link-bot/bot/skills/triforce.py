@@ -16,6 +16,7 @@ from bot.core.context import MessageContext
 _AGENTS_DIR  = Path(__file__).resolve().parents[3]
 CLAUDE_QUEUE = _AGENTS_DIR / "claude_queue.json"
 CODEX_QUEUE  = _AGENTS_DIR / "codex_queue.json"
+MASTERSWORD_QUEUE = _AGENTS_DIR / "mastersword_queue.json"
 CONFIG_PATH  = _AGENTS_DIR / "link-bot" / "config" / "config.json"
 
 
@@ -115,6 +116,30 @@ async def handle_majora(ctx: MessageContext):
     await ctx.reply("🌑 acionando majora...")
 
 
+async def handle_mastersword(ctx: MessageContext):
+    if not _is_owner(ctx):
+        await ctx.reply("🔒 Só o dono pode acionar a MASTERSWORD.")
+        return
+
+    sid = _sender_id(ctx)
+
+    pedido = ctx.args_text.strip()
+    if not pedido:
+        m = re.search(r'\[MASTERSWORD:\s*(.+?)\]', ctx.raw_text, re.IGNORECASE)
+        if m:
+            pedido = m.group(1).strip()
+
+    if not pedido:
+        pedido = _ultimo_pedido_llm(sid)
+
+    if not pedido:
+        await ctx.reply("Manda o que quer perguntar pro OpenCode:\n`!mastersword sua mensagem aqui`")
+        return
+
+    _enfileirar(pedido, sid, sid, canal="whatsapp", fila_path=MASTERSWORD_QUEUE)
+    await ctx.reply("🗡️ acionando mastersword...")
+
+
 SKILL = [
     Skill(
         name="triforce_cmd",
@@ -145,6 +170,22 @@ SKILL = [
         description="*[MAJORA: pedido]* — acionar Codex inline",
         triggers=["[majora"],
         handler=handle_majora,
+        category="admin",
+        priority=20,
+    ),
+    Skill(
+        name="mastersword_cmd",
+        description="*!mastersword <pedido>* — fala direto com o OpenCode (só dono)",
+        triggers=["!mastersword", "!opencode"],
+        handler=handle_mastersword,
+        category="admin",
+        priority=20,
+    ),
+    Skill(
+        name="mastersword_inline",
+        description="*[MASTERSWORD: pedido]* — acionar OpenCode inline",
+        triggers=["[mastersword"],
+        handler=handle_mastersword,
         category="admin",
         priority=20,
     ),

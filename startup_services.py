@@ -53,6 +53,11 @@ MAJORA_SCRIPT  = BASE / "watch_codex_queue.py"
 MAJORA_PID     = BASE / ".majora_pid"
 MAJORA_LOG     = BASE / "majora.log"
 
+# MASTERSWORD watcher (OpenCode)
+MASTERSWORD_SCRIPT = BASE / "watch_mastersword_queue.py"
+MASTERSWORD_PID    = BASE / ".mastersword_pid"
+MASTERSWORD_LOG    = BASE / "mastersword.log"
+
 # Hyrule proxy
 PROXY_SCRIPT = BASE / "CLAUDE CODE" / "proxy.py"
 PROXY_PID    = BASE / ".proxy_pid"
@@ -190,6 +195,11 @@ def _triforce_daemon_rodando() -> bool:
 
 def _majora_rodando() -> bool:
     pid = _ler_pid(MAJORA_PID)
+    return bool(pid) and _pid_ativo(pid)
+
+
+def _mastersword_rodando() -> bool:
+    pid = _ler_pid(MASTERSWORD_PID)
     return bool(pid) and _pid_ativo(pid)
 
 
@@ -358,6 +368,18 @@ def iniciar_majora():
     return True
 
 
+def iniciar_mastersword():
+    print("Iniciando MASTERSWORD watcher (OpenCode)...")
+    proc = _spawn(
+        [PYTHON, "-u", str(MASTERSWORD_SCRIPT)],
+        BASE,
+        MASTERSWORD_LOG,
+        MASTERSWORD_PID,
+    )
+    print(f"  PID {proc.pid}")
+    return True
+
+
 def iniciar_proxy():
     if not PROXY_SCRIPT.exists():
         print("Hyrule Proxy não encontrado.")
@@ -385,6 +407,14 @@ def parar_majora():
     if pid:
         _matar_pid(pid)
     MAJORA_PID.unlink(missing_ok=True)
+
+
+def parar_mastersword():
+    _matar_por_script("watch_mastersword_queue")
+    pid = _ler_pid(MASTERSWORD_PID)
+    if pid:
+        _matar_pid(pid)
+    MASTERSWORD_PID.unlink(missing_ok=True)
 
 
 # ── Apagar mensagens do Discord (após bot online) ─────────────────────────────
@@ -441,6 +471,11 @@ def cmd_start():
     else:
         iniciar_majora()
 
+    if _mastersword_rodando():
+        print(f"MASTERSWORD watcher já rodando (PID {_ler_pid(MASTERSWORD_PID)}).")
+    else:
+        iniciar_mastersword()
+
 
 def cmd_restart(limpar: bool = True):
     """Para tudo, opcionalmente limpa memória, reinicia."""
@@ -449,6 +484,7 @@ def cmd_restart(limpar: bool = True):
     parar_whatsapp()
     parar_triforce_daemon()
     parar_majora()
+    parar_mastersword()
     parar_proxy()
     time.sleep(1)
     if limpar:
@@ -459,6 +495,7 @@ def cmd_restart(limpar: bool = True):
     iniciar_whatsapp()
     iniciar_triforce_daemon()
     iniciar_majora()
+    iniciar_mastersword()
     if limpar:
         _apagar_msgs_discord()
 
@@ -469,6 +506,7 @@ def cmd_stop():
     parar_whatsapp()
     parar_triforce_daemon()
     parar_majora()
+    parar_mastersword()
     parar_proxy()
     print("Serviços parados.")
 
@@ -492,6 +530,10 @@ def cmd_status():
     pid_mx = _ler_pid(MAJORA_PID)
     mx_ok = bool(pid_mx) and _pid_ativo(pid_mx)
     print(f"Majora:       {'● rodando' if mx_ok else '○ parado'}")
+
+    pid_ms = _ler_pid(MASTERSWORD_PID)
+    ms_ok = bool(pid_ms) and _pid_ativo(pid_ms)
+    print(f"Mastersword:  {'● rodando' if ms_ok else '○ parado'}")
 
     try:
         linhas = SUP_LOG.read_text(encoding="utf-8", errors="replace").strip().splitlines()

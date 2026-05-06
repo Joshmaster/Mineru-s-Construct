@@ -14,6 +14,7 @@ link-bot/.whatsapp_pid
 # ── Estado de runtime ─────────────────────────────────────────────────────────
 claude_queue.json
 codex_queue.json
+mastersword_queue.json
 whatsapp_tasks.json
 pedidos_vistos.json
 nav_state.json
@@ -22,6 +23,8 @@ token_usage.log
 .triforce_daemon_pid
 .majora_pid
 .majora_processing.lock
+.mastersword_pid
+.mastersword_processing.lock
 .proxy_pid
 DISCORD/.bot_pid
 DISCORD/.supervisor_pid
@@ -32,6 +35,7 @@ DISCORD/discord.log
 DISCORD/supervisor_out.log
 DISCORD/bot_error.log
 triforce_daemon.log
+mastersword.log
 link-bot/.linkbot/whatsapp.log
 link-bot/.linkbot/whatsapp_err.log
 link-bot/qr_pair

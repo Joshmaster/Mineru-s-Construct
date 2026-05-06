@@ -1,7 +1,7 @@
 # Mineru's Construct - Sistema Hyrule
 
 Sistema pessoal do OWNER: bot Discord (Link), bot WhatsApp, supervisor de LLMs,
-Hyrule Proxy, TRIFORCE daemon e MAJORA watcher.
+Hyrule Proxy, TRIFORCE daemon, MAJORA watcher e MASTERSWORD watcher.
 
 O runtime atual fica em `~/Agents` num Ubuntu Server. As credenciais reais ficam
 fora do git em `hyrule_env.py`, gerado por `setup.sh`.
@@ -35,6 +35,7 @@ source ~/.bashrc
 ├── bot_supervisor.py          # supervisor Discord + tool calling + fallback LLM
 ├── triforce_daemon.py         # claude_queue.json -> claude --print --continue
 ├── watch_codex_queue.py       # codex_queue.json -> codex exec
+├── watch_mastersword_queue.py # mastersword_queue.json -> opencode run
 ├── watch_discord_queue.py     # watcher asyncRewake para sessoes interativas
 ├── check_llms.py              # healthcheck de Discord, proxy, Ollama e LLMs
 ├── setup.sh                   # gera hyrule_env.py a partir de env vars
@@ -60,7 +61,7 @@ O supervisor sempre tenta a camada mais barata primeiro:
 1. OpenRouter gpt-oss/free models
 2. Groq llama/kimi
 3. Ollama qwen2.5:7b local
-4. TRIFORCE/MAJORA apenas quando escalado
+4. TRIFORCE/MAJORA/MASTERSWORD apenas quando escalado
 ```
 
 O TRIFORCE nao mascara erro do Claude com outro LLM. Se `claude --continue`
@@ -77,6 +78,8 @@ falhar, ele retorna erro visivel para corrigir a causa original.
 | TRIFORCE queue | `claude_queue.json` |
 | MAJORA queue | `codex_queue.json` |
 | MAJORA lock | `.majora_processing.lock` |
+| MASTERSWORD queue | `mastersword_queue.json` |
+| MASTERSWORD lock | `.mastersword_processing.lock` |
 
 ## Instalacao curta
 
@@ -97,7 +100,9 @@ source ~/.bashrc
 nvm install 22
 nvm use 22
 npm i -g @anthropic-ai/claude-code
+npm i -g opencode-ai
 claude --version
+opencode --version
 
 git clone https://github.com/OWNERmaster/Mineru-s-Construct.git ~/Agents
 cd ~/Agents
@@ -156,13 +161,14 @@ tail -f ~/Agents/DISCORD/bot_error.log
 tail -f ~/Agents/link-bot/.linkbot/whatsapp_err.log
 tail -f ~/Agents/triforce_daemon.log
 tail -f ~/Agents/majora.log
+tail -f ~/Agents/mastersword.log
 tail -f ~/Agents/CLAUDE\ CODE/proxy_runtime.log
 ```
 
 ## Systemd
 
 O servico recomendado chama `startup_services.py`, que sobe proxy, Discord,
-supervisor, WhatsApp, TRIFORCE e MAJORA.
+supervisor, WhatsApp, TRIFORCE, MAJORA e MASTERSWORD.
 
 ```ini
 [Unit]
@@ -208,3 +214,4 @@ Se algum segredo aparecer no git, revogue e gere outro.
 | Claude auto-update falha | `claude doctor`, depois `npm i -g @anthropic-ai/claude-code` |
 | TRIFORCE 401 | Rodar `claude` interativo e renovar OAuth |
 | MAJORA duplicando | Conferir `.majora_processing.lock` e `majora.log` |
+| MASTERSWORD falha | `opencode --version`, `opencode debug config`, conferir `mastersword.log` |

@@ -182,6 +182,8 @@ async def handle(ctx: MessageContext):
         secoes.append(("🔱", "*TRIFORCE — ADMIN*", [
             "`!acesso` lista / add / del",
             "`!triforce` <pedido ao Claude>",
+            "`!majora` <pedido ao Codex>",
+            "`!mastersword` <pedido ao OpenCode>",
             "`!dono`",
         ]))
 
