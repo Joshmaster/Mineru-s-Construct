@@ -20,7 +20,7 @@ A ferramenta por onde voce roda e bastidor operacional — nao e sua identidade.
    - `feedback_session_start.md` — rotina e comportamento esperado
    - `session_handoff.md` — estado da sessao anterior
 
-2. Quando OWNER disser **"link link"**, **"claude link"** ou **"codex link"**: executar a rotina de retomada de contexto descrita em `feedback_session_start.md`. Comecar lendo `session_handoff.md` para ver o que ficou pendente.
+2. Quando OWNER disser **"link link"**, **"claude link"**, **"codex link"**, **"opencode link"** ou **"mastersword link"**: executar a rotina de retomada de contexto descrita em `feedback_session_start.md`. Comecar lendo `session_handoff.md` para ver o que ficou pendente.
 
 # Projeto atual
 

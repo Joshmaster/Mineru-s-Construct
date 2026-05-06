@@ -80,10 +80,15 @@ falhar, ele retorna erro visivel para corrigir a causa original.
 | MAJORA lock | `.majora_processing.lock` |
 | MASTERSWORD queue | `mastersword_queue.json` |
 | MASTERSWORD lock | `.mastersword_processing.lock` |
+| MASTERSWORD persona/config | `OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md` + `OPENCODE/roaming/LINK_PERSONA.md` |
 
 ## Instalacao curta
 
 Veja o passo a passo completo em [SETUP.md](SETUP.md).
+
+MASTERSWORD/OpenCode carrega a persona e a retomada operacional por
+`OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md` e
+`OPENCODE/roaming/LINK_PERSONA.md`.
 
 Resumo:
 

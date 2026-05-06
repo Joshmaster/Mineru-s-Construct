@@ -30,6 +30,7 @@
   },
   "model": "openrouter/openai/gpt-oss-20b:free",
   "instructions": [
+    "~/Agents/OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md",
     "~/Agents/OPENCODE/roaming/LINK_PERSONA.md"
   ]
 }

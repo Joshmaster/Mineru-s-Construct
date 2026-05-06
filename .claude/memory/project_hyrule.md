@@ -71,7 +71,9 @@ Todos os agentes ficam em `C:/Users/OWNER/Agents/`.
 - Instalação: `npm i -g opencode-ai` (binário `opencode`, versão validada 1.14.39)
 - Config Linux ativa: `~/.config/opencode/opencode.json`
 - Config versionada: `OPENCODE/mastersword.opencode.json`
-- Modelos padrão: OpenRouter free → Groq free → Ollama local (`qwen2.5:7b`)
+- Persona/config: `OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md` + `OPENCODE/roaming/LINK_PERSONA.md`
+- Retomada: `opencode link` e `mastersword link` seguem a mesma rotina de `link link`/`codex link`
+- Modelos padrão: OpenRouter free → Ollama local (`qwen2.5:7b`); Groq fica configurado para uso user2al
 - Responde no canal do item: Discord (`localhost:7331`) ou WhatsApp (`localhost:7332`)
 - Usa `.mastersword_processing.lock`; stale após 15 min ou se o PID morreu
 

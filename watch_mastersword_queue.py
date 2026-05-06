@@ -18,6 +18,7 @@ BASE = Path(__file__).parent
 QUEUE_FILE = BASE / "mastersword_queue.json"
 LOCK_FILE  = BASE / ".mastersword_processing.lock"
 PERSONA_FILE = BASE / "OPENCODE" / "roaming" / "LINK_PERSONA.md"
+MASTERSWORD_INSTRUCTIONS = BASE / "OPENCODE" / "roaming" / "MASTERSWORD_INSTRUCTIONS.md"
 CONFIG_TEMPLATE = BASE / "OPENCODE" / "mastersword.opencode.json"
 CONFIG_FILE = Path.home() / ".config" / "opencode" / "opencode.json"
 POLL_SECS = 2
@@ -121,10 +122,38 @@ def _env_opencode() -> dict:
 
 
 def _ensure_config():
-    if CONFIG_FILE.exists() or not CONFIG_TEMPLATE.exists():
+    if not CONFIG_TEMPLATE.exists():
         return
+
     CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(CONFIG_TEMPLATE, CONFIG_FILE)
+    if not CONFIG_FILE.exists():
+        shutil.copyfile(CONFIG_TEMPLATE, CONFIG_FILE)
+
+    required = [
+        str(MASTERSWORD_INSTRUCTIONS),
+        str(PERSONA_FILE),
+    ]
+    try:
+        config = json.loads(CONFIG_FILE.read_text(encoding="utf-8"))
+    except Exception:
+        shutil.copyfile(CONFIG_TEMPLATE, CONFIG_FILE)
+        return
+
+    instructions = config.get("instructions", [])
+    if isinstance(instructions, str):
+        instructions = [instructions]
+    if not isinstance(instructions, list):
+        instructions = []
+
+    changed = False
+    for item in reversed(required):
+        if item not in instructions:
+            instructions.insert(0, item)
+            changed = True
+
+    if changed:
+        config["instructions"] = instructions
+        CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def _modelos() -> list[str]:
@@ -137,7 +166,8 @@ def _modelos() -> list[str]:
 def _prompt(pedido: str, canal: str) -> str:
     return (
         f"[MASTERSWORD via {canal.upper()}] OWNER pediu:\n{pedido}\n\n"
-        "Responda como Link em portugues do Brasil. Seja direto. "
+        "Siga a persona e a instrucao operacional do MASTERSWORD carregadas na config. "
+        "Se isto for uma retomada de contexto, leia as memorias do Hyrule antes de responder. "
         "Se executar alguma acao, diga apenas o resultado real."
     )
 

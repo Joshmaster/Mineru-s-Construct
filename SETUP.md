@@ -87,6 +87,17 @@ Config ativa:
 ~/Agents/OPENCODE/mastersword.opencode.json
 ```
 
+Instrucoes carregadas pelo MASTERSWORD:
+
+```text
+~/Agents/OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md
+~/Agents/OPENCODE/roaming/LINK_PERSONA.md
+```
+
+O watcher garante essas instrucoes na config local existente ao iniciar.
+`opencode link` e `mastersword link` seguem a mesma rotina de retomada de contexto
+de `link link`, `claude link` e `codex link`.
+
 ## 6. Clonar repo
 
 ```bash
@@ -272,7 +283,8 @@ MASTERSWORD:
 - Entrada: `mastersword_queue.json`
 - Executor: `watch_mastersword_queue.py`
 - Comando: `opencode run`
-- Modelos: OpenRouter free -> Groq free -> Ollama local
+- Modelos: OpenRouter free -> Ollama local; Groq fica configurado para uso user2al
+- Persona/config: `OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md` + `OPENCODE/roaming/LINK_PERSONA.md`
 - Lock: `.mastersword_processing.lock`
 - Lock stale: 15 min
 - Canais: Discord e WhatsApp
