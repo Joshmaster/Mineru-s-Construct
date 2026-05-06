@@ -332,6 +332,7 @@ client = discord.Client(intents=intents)
 
 _TAG_RE      = re.compile(r'\[SHEIKAH_SLATE[^\]]*\]', re.IGNORECASE)
 _TRIFORCE_RE = re.compile(r'\[TRIFORCE:\s*(.*?)\]', re.IGNORECASE | re.DOTALL)
+_MAJORA_RE   = re.compile(r'\[MAJORA:\s*(.*?)\]', re.IGNORECASE | re.DOTALL)
 _THINK_RE = re.compile(r'<think>.*?</think>', re.DOTALL | re.IGNORECASE)
 
 # Prefixos que indicam raciocínio interno vazado (modelos de reasoning)
@@ -348,6 +349,7 @@ def sanitizar(texto: str) -> str:
     limpo = _THINK_RE.sub('', texto)        # <think>...</think>
     limpo = _TAG_RE.sub('', limpo)          # [SHEIKAH_SLATE: ...]
     limpo = _TRIFORCE_RE.sub('', limpo)     # [TRIFORCE: ...]
+    limpo = _MAJORA_RE.sub('', limpo)       # [MAJORA: ...]
 
     # Se o texto começa com raciocínio, tenta extrair só a resposta real
     primeira = limpo.strip().split('\n')[0].lower().lstrip('*- ')
@@ -497,6 +499,18 @@ async def on_message(message):
         registrar("SYS", "Bot", "Claude", f"[TRIFORCE-PEDIDO] {pedido_tf}")
         return
 
+    # ── MAJORA: escalação direta para Codex CLI, sem passar pelo LLM ─────────
+    if re.match(r'^!?\s*(majora|codex)\b', _txt_norm):
+        pedido_mx = re.sub(r'^!?\s*(majora|codex)\s*', '', _txt, flags=re.IGNORECASE).strip()
+        if _txt_norm.strip() == "codex link":
+            pedido_mx = f"{autor} quer retomar contexto"
+        elif not pedido_mx:
+            pedido_mx = f"{autor} quer falar com a majora"
+        await message.channel.send("🌑 acionando majora...")
+        registrar("OUT", "Link", autor, "acionando majora...")
+        registrar("SYS", "Bot", "Codex", f"[MAJORA-PEDIDO] {pedido_mx}")
+        return
+
     # Atualiza contexto: último arquivo recebido (apenas metadado)
     if anexos_meta:
         _set_ctx(autor, last_file={
@@ -572,6 +586,11 @@ async def on_message(message):
     if triforce_match:
         pedido_tf = triforce_match.group(1).strip()
         registrar("SYS", "Bot", "Claude", f"[TRIFORCE-PEDIDO] {pedido_tf}")
+
+    majora_match = _MAJORA_RE.search(resposta)
+    if majora_match:
+        pedido_mx = majora_match.group(1).strip()
+        registrar("SYS", "Bot", "Codex", f"[MAJORA-PEDIDO] {pedido_mx}")
 
     resposta_limpa = sanitizar(resposta)
     if resposta_limpa:
@@ -727,6 +746,11 @@ async def rota_chat(request):
         if triforce_match:
             pedido_tf = triforce_match.group(1).strip()
             registrar("SYS", "Bot", "Claude", f"[TRIFORCE-PEDIDO] {pedido_tf}")
+
+        majora_match = _MAJORA_RE.search(resposta)
+        if majora_match:
+            pedido_mx = majora_match.group(1).strip()
+            registrar("SYS", "Bot", "Codex", f"[MAJORA-PEDIDO] {pedido_mx}")
 
         resposta_limpa = sanitizar(resposta)
         registrar("OUT", "Link", autor, f"[CONSOLE] {resposta_limpa}")

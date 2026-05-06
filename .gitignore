@@ -4,6 +4,7 @@ hyrule_env.py
 .env*
 
 # ── Sessoes WhatsApp ──────────────────────────────────────────────────────────
+link-bot/.linkbot/
 link-bot/.linkbot/session.sqlite
 link-bot/.linkbot/test*.sqlite
 link-bot/.linkbot/data.db
@@ -12,11 +13,15 @@ link-bot/.whatsapp_pid
 
 # ── Estado de runtime ─────────────────────────────────────────────────────────
 claude_queue.json
+codex_queue.json
+whatsapp_tasks.json
 pedidos_vistos.json
 nav_state.json
 token_usage.json
 token_usage.log
 .triforce_daemon_pid
+.majora_pid
+.proxy_pid
 DISCORD/.bot_pid
 DISCORD/.supervisor_pid
 
@@ -28,6 +33,8 @@ DISCORD/bot_error.log
 triforce_daemon.log
 link-bot/.linkbot/whatsapp.log
 link-bot/.linkbot/whatsapp_err.log
+link-bot/qr_pair
+link-bot/qr_upload
 
 # ── Historico e sessoes de conversas ─────────────────────────────────────────
 DISCORD/history/

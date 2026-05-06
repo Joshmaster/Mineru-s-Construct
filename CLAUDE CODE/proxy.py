@@ -469,7 +469,7 @@ def call_ollama(messages: list, cfg: dict, tools: list = None) -> tuple:
     content_blocks é lista de blocos Anthropic (text e/ou tool_use).
     """
     endpoint = cfg.get("endpoint", "http://localhost:11434/api/chat")
-    model    = cfg.get("model",    "qwen2.5:1.5b")
+    model    = cfg.get("model",    "qwen2.5:7b")
     timeout  = int(cfg.get("timeout", 60))
 
     payload = {"model": model, "messages": messages, "stream": False}
@@ -685,7 +685,7 @@ def select_startup_provider(config: dict) -> tuple:
     Retorna (provider_key, model, cfg, no_tool_use).
     """
     ollama_cfg   = config.get("ollama", {})
-    ollama_model = ollama_cfg.get("model", "qwen2.5:1.5b")
+    ollama_model = ollama_cfg.get("model", "qwen2.5:7b")
 
     print()
     print(col("┌─ Seleção de Provider ─────────────────────────────────────┐", C_CYAN + C_BOLD))

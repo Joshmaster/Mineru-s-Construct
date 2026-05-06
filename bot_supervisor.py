@@ -2214,23 +2214,6 @@ def monitorar():
             if not _bot_online():
                 _reiniciar_bot()
 
-        # ── MAJORA (Codex CLI) ────────────────────────────────────────────
-        try:
-            if CODEX_QUEUE.exists():
-                raw = CODEX_QUEUE.read_text(encoding="utf-8").strip()
-                if raw:
-                    itens_mx = json.loads(raw)
-                    if itens_mx:
-                        CODEX_QUEUE.write_text("[]", encoding="utf-8")
-                        for item in itens_mx:
-                            pedido_mx  = item.get("pedido", "").strip()
-                            usuario_mx = item.get("usuario", "OWNER")
-                            canal_mx   = item.get("canal", "discord")
-                            if pedido_mx:
-                                log(f"MAJORA (Codex) encaminhando: {pedido_mx[:60]}")
-        except Exception as e:
-            log(f"Erro watcher MAJORA: {e}")
-
         # ── WhatsApp tasks ────────────────────────────────────────────────
         try:
             if WPP_TASKS.exists():
@@ -2346,6 +2329,24 @@ def monitorar():
                             enfileirar_para_claude(pedido_tf, usuario_tf)
                     except Exception as e:
                         log(f"Erro ao processar TRIFORCE: {e}")
+
+                # Enfileira MAJORA Discord → Codex CLI
+                elif "[SYS]" in linha and "[MAJORA-PEDIDO]" in linha:
+                    try:
+                        pedido_mx = linha.split("[MAJORA-PEDIDO] ")[1].strip()
+                        ts_mx = linha[1:20]
+                        chave_mx = f"{ts_mx}|MAJORA|{pedido_mx}"
+                        if pedido_ja_visto(pedidos_vistos, chave_mx):
+                            log(f"MAJORA duplicada, ignorando: {pedido_mx[:60]}")
+                        else:
+                            with _pedido_lock:
+                                pedidos_vistos[chave_mx] = time.time()
+                                salvar_pedidos_vistos(pedidos_vistos)
+                            usuario_mx = next((u for u in ultima_msg if ultima_msg[u]), "OWNER")
+                            log(f"MAJORA -> Codex: {pedido_mx[:80]}")
+                            enfileirar_para_majora(pedido_mx, usuario_mx)
+                    except Exception as e:
+                        log(f"Erro ao processar MAJORA: {e}")
 
                 # Detecta resposta ruim
                 elif "[OUT] Link ->" in linha:

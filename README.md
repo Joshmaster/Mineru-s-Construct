@@ -135,16 +135,19 @@ python3 startup_services.py status
 sudo tee /etc/systemd/system/hyrule.service > /dev/null <<EOF
 [Unit]
 Description=Hyrule Bot System
-After=network.target ollama.service
+Wants=network-online.target ollama.service
+After=network-online.target ollama.service
 
 [Service]
-Type=simple
+Type=oneshot
 User=$USER
 WorkingDirectory=$HOME/Agents
 ExecStart=/usr/bin/python3 $HOME/Agents/startup_services.py start
+ExecReload=/usr/bin/python3 $HOME/Agents/startup_services.py restart-nolimp
 ExecStop=/usr/bin/python3 $HOME/Agents/startup_services.py stop
-Restart=on-failure
-RestartSec=10
+RemainAfterExit=yes
+TimeoutStartSec=120
+TimeoutStopSec=60
 
 [Install]
 WantedBy=multi-user.target

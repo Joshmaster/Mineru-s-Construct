@@ -53,6 +53,12 @@ MAJORA_SCRIPT  = BASE / "watch_codex_queue.py"
 MAJORA_PID     = BASE / ".majora_pid"
 MAJORA_LOG     = BASE / "majora.log"
 
+# Hyrule proxy
+PROXY_SCRIPT = BASE / "CLAUDE CODE" / "proxy.py"
+PROXY_PID    = BASE / ".proxy_pid"
+PROXY_LOG    = BASE / "CLAUDE CODE" / "proxy_runtime.log"
+PROXY_PORT   = 8765
+
 MEMORY_FILES = [
     BASE / "pedidos_vistos.json",        # supervisor usa Agents/ (não DISCORD/)
     DISCORD_DIR / "pedidos_vistos.json", # compat — limpa os dois
@@ -73,6 +79,28 @@ def _porta_livre(port: int) -> bool:
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.settimeout(1)
         return s.connect_ex(("127.0.0.1", port)) != 0
+
+
+def _porta_ativa(port: int) -> bool:
+    return not _porta_livre(port)
+
+
+def _spawn(args: list[str], cwd: Path, stdout_path: Path, pid_path: Path, stderr_path: Path | None = None):
+    """Sobe processo persistente, independente do shell que chamou o gerenciador."""
+    stdout_path.parent.mkdir(parents=True, exist_ok=True)
+    log_out = open(stdout_path, "w", encoding="utf-8")
+    log_err = open(stderr_path, "w", encoding="utf-8") if stderr_path else log_out
+    kwargs = {
+        "cwd": str(cwd),
+        "stdout": log_out,
+        "stderr": log_err,
+        "creationflags": _NO_WINDOW,
+    }
+    if not _WIN:
+        kwargs["start_new_session"] = True
+    proc = subprocess.Popen(args, **kwargs)
+    pid_path.write_text(str(proc.pid), encoding="ascii")
+    return proc
 
 
 def _bot_online() -> bool:
@@ -160,6 +188,16 @@ def _triforce_daemon_rodando() -> bool:
     return bool(pid) and _pid_ativo(pid)
 
 
+def _majora_rodando() -> bool:
+    pid = _ler_pid(MAJORA_PID)
+    return bool(pid) and _pid_ativo(pid)
+
+
+def _proxy_rodando() -> bool:
+    pid = _ler_pid(PROXY_PID)
+    return bool(pid) and _pid_ativo(pid) and _porta_ativa(PROXY_PORT)
+
+
 # ── Parar serviços ────────────────────────────────────────────────────────────
 
 def parar_bot():
@@ -202,6 +240,19 @@ def parar_triforce_daemon():
     TRIFORCE_DAEMON_PID.unlink(missing_ok=True)
 
 
+def parar_proxy():
+    print("Parando Hyrule Proxy...")
+    _matar_por_script("proxy.py --serve")
+    pid = _ler_pid(PROXY_PID)
+    if pid:
+        _matar_pid(pid)
+    PROXY_PID.unlink(missing_ok=True)
+    for _ in range(10):
+        if _porta_livre(PROXY_PORT):
+            break
+        time.sleep(0.5)
+
+
 # ── Limpar memória ────────────────────────────────────────────────────────────
 
 def limpar_memoria():
@@ -226,15 +277,12 @@ def limpar_memoria():
 
 def iniciar_bot():
     print("Iniciando Discord bot...")
-    log = open(BOT_ERR_LOG, "w", encoding="utf-8")
-    proc = subprocess.Popen(
+    proc = _spawn(
         [PYTHON, "-u", str(BOT_SCRIPT)],
-        cwd=str(DISCORD_DIR),
-        stdout=log,
-        stderr=log,
-        creationflags=_NO_WINDOW,
+        DISCORD_DIR,
+        BOT_ERR_LOG,
+        BOT_PID_FILE,
     )
-    BOT_PID_FILE.write_text(str(proc.pid), encoding="ascii")
     print(f"  PID {proc.pid}")
     for i in range(20):
         time.sleep(0.5)
@@ -247,15 +295,12 @@ def iniciar_bot():
 
 def iniciar_supervisor():
     print("Iniciando Supervisor...")
-    log_out = open(SUP_LOG, "w", encoding="utf-8")
-    proc = subprocess.Popen(
+    proc = _spawn(
         [PYTHON, "-u", str(SUPERVISOR_SCRIPT)],
-        cwd=str(BASE),
-        stdout=log_out,
-        stderr=log_out,
-        creationflags=_NO_WINDOW,
+        BASE,
+        SUP_LOG,
+        SUPERVISOR_PID_FILE,
     )
-    SUPERVISOR_PID_FILE.write_text(str(proc.pid), encoding="ascii")
     print(f"  PID {proc.pid}")
     time.sleep(1)
     try:
@@ -271,17 +316,13 @@ def iniciar_whatsapp():
     print("Iniciando WhatsApp bot...")
     err_log = WHATSAPP_DIR / ".linkbot" / "whatsapp_err.log"
     out_log = WHATSAPP_DIR / ".linkbot" / "whatsapp.log"
-    err_log.parent.mkdir(parents=True, exist_ok=True)
-    log_out = open(out_log, "w", encoding="utf-8")
-    log_err = open(err_log, "w", encoding="utf-8")
-    proc = subprocess.Popen(
+    proc = _spawn(
         [PYTHON, "-u", "-m", "bot.main"],
-        cwd=str(WHATSAPP_DIR),
-        stdout=log_out,
-        stderr=log_err,
-        creationflags=_NO_WINDOW,
+        WHATSAPP_DIR,
+        out_log,
+        WHATSAPP_PID_FILE,
+        err_log,
     )
-    WHATSAPP_PID_FILE.write_text(str(proc.pid), encoding="ascii")
     print(f"  PID {proc.pid}")
     time.sleep(3)
     try:
@@ -295,32 +336,47 @@ def iniciar_whatsapp():
 
 def iniciar_triforce_daemon():
     print("Iniciando TRIFORCE daemon...")
-    log_out = open(TRIFORCE_DAEMON_LOG, "w", encoding="utf-8")
-    proc = subprocess.Popen(
+    proc = _spawn(
         [PYTHON, "-u", str(TRIFORCE_DAEMON_SCRIPT)],
-        cwd=str(BASE),
-        stdout=log_out,
-        stderr=log_out,
-        creationflags=_NO_WINDOW,
+        BASE,
+        TRIFORCE_DAEMON_LOG,
+        TRIFORCE_DAEMON_PID,
     )
-    TRIFORCE_DAEMON_PID.write_text(str(proc.pid), encoding="ascii")
     print(f"  PID {proc.pid}")
     return True
 
 
 def iniciar_majora():
     print("Iniciando MAJORA watcher (Codex)...")
-    log_out = open(MAJORA_LOG, "w", encoding="utf-8")
-    proc = subprocess.Popen(
+    proc = _spawn(
         [PYTHON, "-u", str(MAJORA_SCRIPT)],
-        cwd=str(BASE),
-        stdout=log_out,
-        stderr=log_out,
-        creationflags=_NO_WINDOW,
+        BASE,
+        MAJORA_LOG,
+        MAJORA_PID,
     )
-    MAJORA_PID.write_text(str(proc.pid), encoding="ascii")
     print(f"  PID {proc.pid}")
     return True
+
+
+def iniciar_proxy():
+    if not PROXY_SCRIPT.exists():
+        print("Hyrule Proxy não encontrado.")
+        return False
+    print("Iniciando Hyrule Proxy...")
+    proc = _spawn(
+        [PYTHON, "-u", str(PROXY_SCRIPT), "--serve"],
+        PROXY_SCRIPT.parent,
+        PROXY_LOG,
+        PROXY_PID,
+    )
+    print(f"  PID {proc.pid}")
+    for i in range(20):
+        time.sleep(0.5)
+        if _porta_ativa(PROXY_PORT):
+            print(f"  porta {PROXY_PORT} online ✓ ({(i+1)*0.5:.1f}s)")
+            return True
+    print(f"  aviso: proxy não abriu porta {PROXY_PORT} em 10s")
+    return False
 
 
 def parar_majora():
@@ -354,6 +410,11 @@ def _apagar_msgs_discord():
 
 def cmd_start():
     """Inicia serviços que estiverem parados."""
+    if _proxy_rodando():
+        print(f"Hyrule Proxy já rodando (PID {_ler_pid(PROXY_PID)}).")
+    else:
+        iniciar_proxy()
+
     if _bot_online():
         print("Discord bot já está online.")
     else:
@@ -374,7 +435,11 @@ def cmd_start():
         print("TRIFORCE daemon já está rodando.")
     else:
         iniciar_triforce_daemon()
-    iniciar_majora()
+
+    if _majora_rodando():
+        print(f"MAJORA watcher já rodando (PID {_ler_pid(MAJORA_PID)}).")
+    else:
+        iniciar_majora()
 
 
 def cmd_restart(limpar: bool = True):
@@ -384,9 +449,11 @@ def cmd_restart(limpar: bool = True):
     parar_whatsapp()
     parar_triforce_daemon()
     parar_majora()
+    parar_proxy()
     time.sleep(1)
     if limpar:
         limpar_memoria()
+    iniciar_proxy()
     iniciar_bot()
     iniciar_supervisor()
     iniciar_whatsapp()
@@ -402,10 +469,13 @@ def cmd_stop():
     parar_whatsapp()
     parar_triforce_daemon()
     parar_majora()
+    parar_proxy()
     print("Serviços parados.")
 
 
 def cmd_status():
+    print(f"Hyrule Proxy: {'● rodando' if _proxy_rodando() else '○ parado'}")
+
     bot_ok = _bot_online()
     print(f"Discord bot:  {'● online' if bot_ok else '○ offline'}")
 
@@ -418,6 +488,10 @@ def cmd_status():
     pid_tri = _ler_pid(TRIFORCE_DAEMON_PID)
     tri_ok = bool(pid_tri) and _pid_ativo(pid_tri)
     print(f"Triforce:     {'● rodando' if tri_ok else '○ parado'}")
+
+    pid_mx = _ler_pid(MAJORA_PID)
+    mx_ok = bool(pid_mx) and _pid_ativo(pid_mx)
+    print(f"Majora:       {'● rodando' if mx_ok else '○ parado'}")
 
     try:
         linhas = SUP_LOG.read_text(encoding="utf-8", errors="replace").strip().splitlines()

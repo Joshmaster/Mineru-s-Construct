@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Testa o sistema completo: executar_pedido + qwen2.5:1.5b.
+Testa o sistema completo: executar_pedido + qwen2.5:7b.
 Simula exatamente o que o supervisor faz ao receber um pedido.
 
 Uso: python test_qwen.py
@@ -222,7 +222,7 @@ def main():
 
     print(f"{BOLD}=== Resultado: {ok}/{total} passou | {parcial} parcial | {falhou} falhou ==={RESET}")
     print(f"     Python (executar_pedido): {python_ok}/{python_t}")
-    print(f"     qwen2.5:1.5b:            {qwen_ok}/{qwen_t}\n")
+    print(f"     qwen2.5:7b:            {qwen_ok}/{qwen_t}\n")
 
     if falhou > 0:
         print(f"{RED}Falhas:{RESET}")

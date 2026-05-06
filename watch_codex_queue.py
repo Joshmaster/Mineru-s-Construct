@@ -40,9 +40,9 @@ def _enviar(usuario: str, msg: str, canal: str = "discord"):
     try:
         with urllib.request.urlopen(req, timeout=15) as r:
             pass
-        print(f"ENVIADO ({canal}:{porta}) -> {usuario}: {msg[:60]}")
+        print(f"ENVIADO ({canal}:{porta}) -> {usuario}: {msg[:60]}", flush=True)
     except Exception as e:
-        print(f"Erro enviar ({canal}): {e}")
+        print(f"Erro enviar ({canal}): {e}", flush=True)
 
 
 def _processar(item: dict):
@@ -53,7 +53,7 @@ def _processar(item: dict):
     if not pedido:
         return
 
-    print(f"MAJORA processando: {pedido[:80]}")
+    print(f"MAJORA processando: {pedido[:80]}", flush=True)
 
     try:
         result = subprocess.run(
@@ -78,7 +78,7 @@ def _processar(item: dict):
 
 
 if __name__ == "__main__":
-    print(f"🌑 MAJORA watcher iniciado. Monitorando {QUEUE_FILE}")
+    print(f"🌑 MAJORA watcher iniciado. Monitorando {QUEUE_FILE}", flush=True)
     while True:
         time.sleep(POLL_SECS)
         itens = _ler_e_limpar()
@@ -86,4 +86,4 @@ if __name__ == "__main__":
             try:
                 _processar(item)
             except Exception as e:
-                print(f"Erro item MAJORA: {e}")
+                print(f"Erro item MAJORA: {e}", flush=True)
