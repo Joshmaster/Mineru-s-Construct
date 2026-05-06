@@ -78,11 +78,22 @@ CLAUDE CODE/global/memory/
 CLAUDE CODE/global/settings.local.json
 CLAUDE CODE/global/sessions/
 CLAUDE CODE/global/plans/
+CLAUDE CODE/global/tasks/
+CLAUDE CODE/global/shell-snapshots/
+CLAUDE CODE/global/ua_history.json
+CLAUDE CODE/global/ua_session.log.json
 CLAUDE CODE/global/mcp-needs-auth-cache.json
 CLAUDE CODE/global/plugins/
 CLAUDE CODE/global/universal_agent.py
 CLAUDE CODE/universal_agent.py
 CLAUDE CODE/ollama_fallback.py
+
+# ── Configs pessoais (nao versionar) ─────────────────────────────────────────
+link-bot/config/config.json
+DISCORD/usuarios_extra.json
+DISCORD/files/foto_josh.jpg
+DISCORD/files/comida.jpg
+DISCORD/files/teste.json
 
 # ── OpenCode (binario e dados de sessao) ─────────────────────────────────────
 OPENCODE/bin/

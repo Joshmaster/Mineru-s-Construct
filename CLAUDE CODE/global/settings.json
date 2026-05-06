@@ -10,50 +10,50 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"C:/Users/OWNER/Agents/startup_services.py\"",
+            "command": "python \"~/Agents/startup_services.py\"",
             "timeout": 15,
             "statusMessage": "Iniciando servicos (Discord + Proxy)...",
             "async": true
           },
           {
             "type": "command",
-            "command": "python \"C:/Users/OWNER/Agents/check_llms.py\"",
+            "command": "python \"~/Agents/check_llms.py\"",
             "timeout": 20,
             "statusMessage": "Validando LLMs..."
           },
           {
             "type": "command",
-            "command": "python \"C:/Users/OWNER/Agents/check_discord_logs.py\"",
+            "command": "python \"~/Agents/check_discord_logs.py\"",
             "timeout": 10,
             "statusMessage": "Lendo logs do Discord..."
           },
           {
             "type": "command",
-            "command": "python \"C:/Users/OWNER/Agents/watch_discord_queue.py\" 0",
+            "command": "python \"~/Agents/watch_discord_queue.py\" 0",
             "asyncRewake": true,
             "statusMessage": "TRIFORCE aguardando pedidos (slot 0)..."
           },
           {
             "type": "command",
-            "command": "python \"C:/Users/OWNER/Agents/watch_discord_queue.py\" 1",
+            "command": "python \"~/Agents/watch_discord_queue.py\" 1",
             "asyncRewake": true,
             "statusMessage": "TRIFORCE aguardando pedidos (slot 1)..."
           },
           {
             "type": "command",
-            "command": "python \"C:/Users/OWNER/Agents/watch_discord_queue.py\" 2",
+            "command": "python \"~/Agents/watch_discord_queue.py\" 2",
             "asyncRewake": true,
             "statusMessage": "TRIFORCE aguardando pedidos (slot 2)..."
           },
           {
             "type": "command",
-            "command": "python \"C:/Users/OWNER/Agents/watch_discord_queue.py\" 3",
+            "command": "python \"~/Agents/watch_discord_queue.py\" 3",
             "asyncRewake": true,
             "statusMessage": "TRIFORCE aguardando pedidos (slot 3)..."
           },
           {
             "type": "command",
-            "command": "python \"C:/Users/OWNER/Agents/watch_discord_queue.py\" 4",
+            "command": "python \"~/Agents/watch_discord_queue.py\" 4",
             "asyncRewake": true,
             "statusMessage": "TRIFORCE aguardando pedidos (slot 4)..."
           }
@@ -65,7 +65,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python \"C:/Users/OWNER/Agents/check_claude_queue.py\"",
+            "command": "python \"~/Agents/check_claude_queue.py\"",
             "timeout": 5,
             "statusMessage": "Verificando pedidos do Discord..."
           }
