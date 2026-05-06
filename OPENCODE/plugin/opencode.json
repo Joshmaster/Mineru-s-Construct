@@ -1,6 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "instructions": [
-    "C:\\Users\\OWNER\\Agents\\OPENCODE\\roaming\\LINK_PERSONA.md"
+    "~/Agents/OPENCODE/roaming/LINK_PERSONA.md"
   ]
 }

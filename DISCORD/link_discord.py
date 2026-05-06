@@ -40,8 +40,10 @@ _fallback_modelo_idx = 0
 _fallback_key_idx    = 0
 
 USUARIOS = {
-    "OWNER": DISCORD_OWNER_ID,
-    "USER2": DISCORD_USER2_ID
+    # Mapeie aqui os nomes amigaveis para IDs Discord (inteiros).
+    # Exemplo: "OWNER": 123456789012345678
+    # Para pegar seu ID: Discord → Configuracoes → Avancado → Modo desenvolvedor ON
+    #                   depois clique com botao direito no usuario → Copiar ID
 }
 
 BASE_DIR      = os.path.dirname(os.path.abspath(__file__))

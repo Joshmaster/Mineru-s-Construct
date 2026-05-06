@@ -5,12 +5,12 @@ type: project
 ---
 
 ## Fato
-O sistema Hyrule roda em **Ubuntu Linux** (`~/Agents/`), não no PC Windows do OWNER.
+O sistema Hyrule roda em **Ubuntu Linux** (`~/Agents/`), não no PC Windows.
 
-**Why:** Sessões anteriores assumiam Windows (`C:\Users\OWNER\Agents\`) por causa do histórico de desenvolvimento. O servidor foi migrado/implantado no Ubuntu.
-**How to apply:** Nunca usar paths Windows hardcoded. Sempre usar `Path(__file__).resolve()` ou `~/Agents/`. Comandos shell são bash, não PowerShell/cmd.
+**Why:** Sessões anteriores assumiam Windows por causa do histórico de desenvolvimento. O servidor foi migrado/implantado no Ubuntu.
+**How to apply:** Nunca usar paths Windows hardcoded. Sempre usar `Path(__file__).resolve()` ou caminhos relativos ao script. Comandos shell são bash, não PowerShell/cmd.
 
-## Paths corretos
+## Paths corretos (relativos ao home do usuário)
 - Base: `~/Agents/`
 - claude_queue: `~/Agents/claude_queue.json`
 - codex_queue: `~/Agents/codex_queue.json`
@@ -19,6 +19,6 @@ O sistema Hyrule roda em **Ubuntu Linux** (`~/Agents/`), não no PC Windows do O
 - persona: `~/Agents/OPENCODE/roaming/LINK_PERSONA.md`
 
 ## O que NÃO usar
-- `C:\Users\OWNER\Agents\` — path Windows antigo, inválido no servidor
+- Paths Windows hardcoded com username específico
 - `sys.platform == "win32"` como condição principal
 - `os.startfile()`, `CREATE_NO_WINDOW`, `taskkill`, `wmic` sem fallback Linux

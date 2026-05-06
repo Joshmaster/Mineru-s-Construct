@@ -123,6 +123,35 @@ export WA_ALLOW_FROM="5537...,5537..."
 bash setup.sh
 ```
 
+### Como obter cada credencial
+
+**DISCORD_TOKEN**
+1. Acesse [discord.com/developers/applications](https://discord.com/developers/applications)
+2. Crie um novo Application → clique em **Bot** → **Reset Token** → copie o token
+3. Em **Privileged Gateway Intents**: ative `Message Content`, `Server Members` e `Presence`
+4. Convide o bot com o link OAuth2 gerado na aba **OAuth2**
+
+**OPENROUTER_KEY** (gratuito, varios modelos free tier)
+1. Crie conta em [openrouter.ai](https://openrouter.ai)
+2. Va em **Keys** → **Create Key** → copie
+3. Basta uma chave; OPENROUTER_KEY_2 e _3 sao opcionais para rotacao
+
+**GROQ_KEY** (gratuito, alta velocidade)
+1. Crie conta em [console.groq.com](https://console.groq.com)
+2. Va em **API Keys** → **Create API Key** → copie
+3. Mesma logica: uma chave basta, as extras sao para rotacao
+
+**WA_OWNER e WA_ALLOW_FROM** (numeros WhatsApp)
+- Formato: `55` + DDD + numero, sem `+`, espacos ou traco
+- Exemplo: numero `OWNER_PHONE` → `55XXXXXXXXXXX`
+- `WA_OWNER` = seu numero (administrador do bot)
+- `WA_ALLOW_FROM` = numeros que podem interagir com o bot, separados por virgula
+
+**IDs Discord de usuarios** (opcional, para DMs pelo bot)
+1. No Discord: Configuracoes → Avancado → **Modo desenvolvedor** ON
+2. Clique com botao direito em qualquer usuario → **Copiar ID**
+3. Adicione em `DISCORD/link_discord.py` no dict `USUARIOS`
+
 `setup.sh` tambem instala:
 
 ```text
@@ -239,11 +268,11 @@ After=network-online.target ollama.service
 
 [Service]
 Type=oneshot
-User=OWNER_USER
-WorkingDirectory=~/Agents
-ExecStart=/usr/bin/python3 ~/Agents/startup_services.py start
-ExecReload=/usr/bin/python3 ~/Agents/startup_services.py restart-nolimp
-ExecStop=/usr/bin/python3 ~/Agents/startup_services.py stop
+User=SEU_USUARIO
+WorkingDirectory=/home/SEU_USUARIO/Agents
+ExecStart=/usr/bin/python3 /home/SEU_USUARIO/Agents/startup_services.py start
+ExecReload=/usr/bin/python3 /home/SEU_USUARIO/Agents/startup_services.py restart-nolimp
+ExecStop=/usr/bin/python3 /home/SEU_USUARIO/Agents/startup_services.py stop
 RemainAfterExit=yes
 TimeoutStartSec=120
 TimeoutStopSec=60

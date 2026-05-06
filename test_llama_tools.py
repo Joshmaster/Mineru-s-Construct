@@ -24,7 +24,7 @@ FOTO_URL = (
     "be76-e6b2a3915cf2.jpg?ex=69dfc1d1&is=69de7051&"
     "hm=9ca9a4f540f4cd1e426aadfbaa7c9d710ac1f163a1a5a605bd81b52603878e2b&"
 )
-DESKTOP = "C:/Users/OWNER/OneDrive - MEDSENIOR/Área de Trabalho/foto_josh_llama.jpg"
+DESKTOP = "~/Desktop/foto_teste.jpg"
 
 SYSTEM = (
     "Voce e o agente Hyrule Supervisor, rodando no PC do OWNER.\n"
@@ -48,7 +48,7 @@ TAREFAS = [
         "nome": "TESTE 3 — Baixar gif de Link Zelda e enviar para OWNER",
         "pedido": (
             "Baixa o gif do Link de Zelda que ja existe em "
-            "C:/Users/OWNER/Agents/DISCORD/files/link_zelda.gif "
+            "~/Agents/DISCORD/files/link_zelda.gif"
             "e envia para OWNER no Discord."
         ),
     },

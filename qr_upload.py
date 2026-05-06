@@ -1,12 +1,14 @@
 """Gera QR WhatsApp, salva PNG e faz upload para catbox.moe."""
 import sys, asyncio, urllib.request, urllib.parse
-sys.path.insert(0, '~/Agents')
+from pathlib import Path
+BASE_DIR = Path(__file__).resolve().parent
+sys.path.insert(0, str(BASE_DIR))
 
 import qrcode
 from neonize.aioze.client import NewAClient
 from neonize.aioze.events import ConnectedEv
 
-QR_PATH = '~/Agents/link-bot/.linkbot/qr_upload.png'
+QR_PATH = str(BASE_DIR / "link-bot" / ".linkbot" / "qr_upload.png")
 client = NewAClient("qr_upload")
 
 @client.event.qr

@@ -109,7 +109,7 @@ def _processar(item: dict):
             ["codex", "exec", pedido],
             capture_output=True, text=True, timeout=180,
             encoding="utf-8", errors="replace",
-            cwd="~/Agents",
+            cwd=str(Path(__file__).resolve().parent),
         )
         resposta = (result.stdout or "").strip()
         if not resposta:

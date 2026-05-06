@@ -1,6 +1,7 @@
 """Gera QR do WhatsApp e imprime como ASCII no terminal."""
 import sys, asyncio, qrcode as _qr
-sys.path.insert(0, '~/Agents')
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from neonize.aioze.client import NewAClient
 from neonize.aioze.events import ConnectedEv

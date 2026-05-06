@@ -31,6 +31,6 @@
   },
   "model": "groq/llama-3.3-70b-versatile",
   "instructions": [
-    "C:\\Users\\OWNER\\Agents\\OPENCODE\\LINK_PERSONA.md"
+    "~/Agents/OPENCODE/LINK_PERSONA.md"
   ]
 }

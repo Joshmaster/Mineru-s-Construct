@@ -9,9 +9,9 @@ You execute tasks via tools. Always call a tool — never answer directly.
 - USER2 (DISCORD_USER2_USERNAME) — OWNER's friend
 
 ## Key Paths
-- Desktop: C:\Users\OWNER\OneDrive - MEDSENIOR\Área de Trabalho\
-- Downloads: C:\Users\OWNER\Downloads\
-- Agents: C:\Users\OWNER\Agents\
+- Desktop: C:\Users\SEU_USUARIO\Desktop\
+- Downloads: C:\Users\SEU_USUARIO\Downloads\
+- Agents: C:\Users\SEU_USUARIO\Agents\
 
 ## Rules
 - ALWAYS call a tool — never text-only responses for PC tasks

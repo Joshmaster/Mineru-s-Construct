@@ -258,11 +258,11 @@ After=network-online.target ollama.service
 
 [Service]
 Type=oneshot
-User=OWNER_USER
-WorkingDirectory=~/Agents
-ExecStart=/usr/bin/python3 ~/Agents/startup_services.py start
-ExecReload=/usr/bin/python3 ~/Agents/startup_services.py restart-nolimp
-ExecStop=/usr/bin/python3 ~/Agents/startup_services.py stop
+User=SEU_USUARIO
+WorkingDirectory=/home/SEU_USUARIO/Agents
+ExecStart=/usr/bin/python3 /home/SEU_USUARIO/Agents/startup_services.py start
+ExecReload=/usr/bin/python3 /home/SEU_USUARIO/Agents/startup_services.py restart-nolimp
+ExecStop=/usr/bin/python3 /home/SEU_USUARIO/Agents/startup_services.py stop
 RemainAfterExit=yes
 TimeoutStartSec=120
 TimeoutStopSec=60

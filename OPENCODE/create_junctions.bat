@@ -1,7 +1,7 @@
 @echo off
 chcp 65001 > nul 2>&1
 
-set "BASE=C:\Users\OWNER\Agents\OPENCODE"
+set "BASE=%USERPROFILE%\Agents\OPENCODE"
 
 echo Criando junctions do OpenCode...
 echo.

@@ -6,7 +6,7 @@ originSessionId: ac218d08-6f60-4d2f-b426-1188d53f3b27
 ---
 ## Arquitetura geral
 
-Todos os agentes ficam em `C:/Users/OWNER/Agents/`.
+Todos os agentes ficam em `~/Agents/`.
 
 ### Bot Discord — Link (`DISCORD/link_discord.py`)
 - Responde OWNER (`DISCORD_OWNER_USERNAME`) e USER2 (`DISCORD_USER2_USERNAME`) via DM no Discord
