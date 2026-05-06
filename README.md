@@ -1,114 +1,214 @@
-# Mineru's Construct - Sistema Hyrule
+```
+ ╔══════════════════════════════════════════════════════════════════════════╗
+ ║                                                                          ║
+ ║        ███╗   ███╗██╗███╗   ██╗███████╗██████╗ ██╗   ██╗               ║
+ ║        ████╗ ████║██║████╗  ██║██╔════╝██╔══██╗██║   ██║               ║
+ ║        ██╔████╔██║██║██╔██╗ ██║█████╗  ██████╔╝██║   ██║               ║
+ ║        ██║╚██╔╝██║██║██║╚██╗██║██╔══╝  ██╔══██╗██║   ██║               ║
+ ║        ██║ ╚═╝ ██║██║██║ ╚████║███████╗██║  ██║╚██████╔╝               ║
+ ║        ╚═╝     ╚═╝╚═╝╚═╝  ╚═══╝╚══════╝╚═╝  ╚═╝ ╚═════╝                ║
+ ║                                                                          ║
+ ║              ✦  C O N S T R U C T   D E   M I N E R U  ✦               ║
+ ║                       ── Sistema Hyrule ──                               ║
+ ║                                                                          ║
+ ╚══════════════════════════════════════════════════════════════════════════╝
+```
 
-Sistema pessoal do OWNER: bot Discord (Link), bot WhatsApp, supervisor de LLMs,
-Hyrule Proxy, TRIFORCE daemon, MAJORA watcher e MASTERSWORD watcher.
+> *"Fui selada nesta forma por tempo suficiente para que o mundo esquecesse meu nome.*
+> *Mas o propósito permanece. O Construct obedece. Hyrule persiste."*
+> — **Mineru**, Sábia do Espírito
 
-O runtime atual fica em `~/Agents` num Ubuntu Server. As credenciais reais ficam
-fora do git em `hyrule_env.py`, gerado por `setup.sh`.
+---
 
-Repo: https://github.com/OWNERmaster/Mineru-s-Construct
+## ✦ A Palavra de Mineru
 
-## Retomar pelo SSH
+Sistema pessoal do **OWNER** — construído sobre as ruínas de incontáveis experimentações,
+temperado em batalha e selado neste repositório para que o conhecimento não se perca.
+
+O **Link** habita o sistema como assistente: bot no Discord, bot no WhatsApp,
+supervisor de LLMs, proxy, e três artefatos de código — **TRIFORCE**, **MAJORA** e **MASTERSWORD**.
+
+Repo: [github.com/OWNERmaster/Mineru-s-Construct](https://github.com/OWNERmaster/Mineru-s-Construct)
+Runtime: Ubuntu Server em `~/Agents/`
+Credenciais: fora do git, em `hyrule_env.py` (gerado por `setup.sh`)
+
+---
+
+## ✦ Os Três Artefatos
+
+```
+ ┌─────────────────────────────────────────────────────────────────────┐
+ │                                                                     │
+ │   ▲  TRIFORCE  ──  Claude Code CLI  ──  claude_queue.json          │
+ │                    Tarefas complexas, código, análise profunda      │
+ │                                                                     │
+ │   ◉  MAJORA    ──  Codex CLI        ──  codex_queue.json           │
+ │                    Agente de código alternativo                     │
+ │                                                                     │
+ │   ⚔  MASTERSWORD── OpenCode        ──  mastersword_queue.json      │
+ │                    Modelos baratos, grátis e locais                 │
+ │                                                                     │
+ └─────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## ✦ A Hierarquia dos Custos
+
+*Cada camada só é ativada se a anterior falhou. O Construct não desperdiça energia.*
+
+```
+  ① OpenRouter  gpt-oss / free models  ──  tenta primeiro
+         │  falhou (429 / erro)
+  ② Groq        llama / kimi           ──  0.3s de latência
+         │  falhou
+  ③ Ollama      qwen2.5:7b             ──  LOCAL · zero custo · ~7s CPU
+         │  falhou
+  ④ TRIFORCE / MAJORA / MASTERSWORD    ──  apenas quando escalado
+```
+
+O **TRIFORCE** não mascara erro do Claude com outro LLM.
+Se `claude --continue` falhar, o erro aparece visível para correção.
+
+---
+
+## ✦ Arquitetura do Construct
+
+```
+ ~/Agents/
+ │
+ ├── startup_services.py         ◂ inicia / para / reinicia tudo
+ ├── bot_supervisor.py           ◂ supervisor · tool calling · fallback LLM
+ ├── triforce_daemon.py          ◂ claude_queue.json → claude --print --continue
+ ├── watch_codex_queue.py        ◂ codex_queue.json  → codex exec
+ ├── watch_mastersword_queue.py  ◂ mastersword_queue → opencode run
+ ├── watch_discord_queue.py      ◂ asyncRewake para sessões interativas
+ ├── check_llms.py               ◂ healthcheck completo
+ ├── setup.sh                    ◂ gera hyrule_env.py + instala deps
+ ├── hyrule_env.example.py       ◂ template sem segredos
+ ├── hyrule_env.py               ◂ credenciais · IGNORADO pelo git
+ │
+ ├── DISCORD/
+ │   └── link_discord.py         ◂ bot Discord + HTTP API :7331
+ │
+ ├── link-bot/
+ │   ├── bot/main.py             ◂ bot WhatsApp + HTTP API :7332
+ │   └── config/config.json      ◂ owner / allow list
+ │
+ ├── CLAUDE CODE/
+ │   └── proxy.py                ◂ Hyrule Proxy :8765
+ │
+ └── OPENCODE/
+     ├── mastersword.opencode.json   ◂ config MASTERSWORD (template)
+     └── roaming/
+         ├── LINK_PERSONA.md         ◂ persona do Link (todos os agentes)
+         └── MASTERSWORD_INSTRUCTIONS.md  ◂ instruções operacionais OpenCode
+```
+
+---
+
+## ✦ Portais e Filas
+
+| Serviço             | Porta / Arquivo                       |
+|---------------------|---------------------------------------|
+| Discord HTTP API    | `localhost:7331`                      |
+| WhatsApp HTTP API   | `localhost:7332`                      |
+| Hyrule Proxy        | `localhost:8765`                      |
+| Ollama              | `localhost:11434`                     |
+| TRIFORCE queue      | `claude_queue.json`                   |
+| MAJORA queue        | `codex_queue.json`                    |
+| MASTERSWORD queue   | `mastersword_queue.json`              |
+| MAJORA lock         | `.majora_processing.lock`             |
+| MASTERSWORD lock    | `.mastersword_processing.lock`        |
+
+---
+
+## ✦ Invocar o Sistema
+
+### Retomar sessão via SSH
 
 ```bash
 cd ~/Agents && claude
 ```
 
-Isso carrega:
-
-- `CLAUDE.md` e `AGENTS.md`: identidade Link e regras de trabalho
-- `.claude/memory/`: memoria do projeto e handoff da sessao anterior
-- `.claude/settings.local.json`: permissoes locais
+Isso carrega automaticamente:
+- `CLAUDE.md` e `AGENTS.md` — identidade Link e regras de trabalho
+- `.claude/memory/` — memória do projeto e handoff da sessão anterior
+- `.claude/settings.local.json` — permissões locais
 
 Atalho opcional:
 
 ```bash
-echo "alias hyrule='cd ~/Agents && claude'" >> ~/.bashrc
-source ~/.bashrc
+echo "alias hyrule='cd ~/Agents && claude'" >> ~/.bashrc && source ~/.bashrc
 ```
 
-## Arquitetura
+### Controle de serviços
 
-```text
-~/Agents/
-├── startup_services.py        # start/stop/restart/status de todos os servicos
-├── bot_supervisor.py          # supervisor Discord + tool calling + fallback LLM
-├── triforce_daemon.py         # claude_queue.json -> claude --print --continue
-├── watch_codex_queue.py       # codex_queue.json -> codex exec
-├── watch_mastersword_queue.py # mastersword_queue.json -> opencode run
-├── watch_discord_queue.py     # watcher asyncRewake para sessoes interativas
-├── check_llms.py              # healthcheck de Discord, proxy, Ollama e LLMs
-├── setup.sh                   # gera hyrule_env.py a partir de env vars
-├── hyrule_env.example.py      # template sem segredos
-├── hyrule_env.py              # credenciais locais, ignorado pelo git
-│
-├── DISCORD/
-│   └── link_discord.py        # bot Discord + HTTP API :7331
-│
-├── link-bot/
-│   ├── bot/main.py            # bot WhatsApp + HTTP API :7332
-│   └── config/config.json     # owner/allow list do WhatsApp
-│
-└── CLAUDE CODE/
-    └── proxy.py               # Hyrule Proxy :8765
+```bash
+python3 ~/Agents/startup_services.py start
+python3 ~/Agents/startup_services.py status
+python3 ~/Agents/startup_services.py restart
+python3 ~/Agents/startup_services.py restart-nolimp   # preserva histórico
+python3 ~/Agents/startup_services.py stop
 ```
 
-## Fluxo de custo
+### Logs em tempo real
 
-O supervisor sempre tenta a camada mais barata primeiro:
-
-```text
-1. OpenRouter gpt-oss/free models
-2. Groq llama/kimi
-3. Ollama qwen2.5:7b local
-4. TRIFORCE/MAJORA/MASTERSWORD apenas quando escalado
+```bash
+tail -f ~/Agents/DISCORD/supervisor_out.log
+tail -f ~/Agents/DISCORD/bot_error.log
+tail -f ~/Agents/link-bot/.linkbot/whatsapp.log
+tail -f ~/Agents/triforce_daemon.log
+tail -f ~/Agents/majora.log
+tail -f ~/Agents/mastersword.log
+tail -f ~/Agents/"CLAUDE CODE"/proxy_runtime.log
 ```
 
-O TRIFORCE nao mascara erro do Claude com outro LLM. Se `claude --continue`
-falhar, ele retorna erro visivel para corrigir a causa original.
+---
 
-## Servicos e portas
+## ✦ A Pedra Sheikah — Instalação
 
-| Servico | Porta/arquivo |
-|---|---|
-| Discord HTTP API | `localhost:7331` |
-| WhatsApp HTTP API | `localhost:7332` |
-| Hyrule Proxy | `localhost:8765` |
-| Ollama | `localhost:11434` |
-| TRIFORCE queue | `claude_queue.json` |
-| MAJORA queue | `codex_queue.json` |
-| MAJORA lock | `.majora_processing.lock` |
-| MASTERSWORD queue | `mastersword_queue.json` |
-| MASTERSWORD lock | `.mastersword_processing.lock` |
-| MASTERSWORD persona/config | `OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md` + `OPENCODE/roaming/LINK_PERSONA.md` |
+Guia completo em [SETUP.md](SETUP.md). Resumo:
 
-## Instalacao curta
-
-Veja o passo a passo completo em [SETUP.md](SETUP.md).
-
-MASTERSWORD/OpenCode carrega a persona e a retomada operacional por
-`OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md` e
-`OPENCODE/roaming/LINK_PERSONA.md`.
-
-Resumo:
+### 1. Pacotes base
 
 ```bash
 sudo apt update && sudo apt upgrade -y
-sudo apt install -y python3 python3-pip python3-venv git curl wget procps xdg-utils
+sudo apt install -y python3 python3-pip python3-venv git curl wget procps xdg-utils libgomp1 ffmpeg
+```
 
+### 2. Ollama (LLM local)
+
+```bash
 curl -fsSL https://ollama.com/install.sh | sh
 sudo systemctl enable --now ollama
 ollama pull qwen2.5:7b
+```
 
+### 3. Node via nvm
+
+```bash
 curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.39.7/install.sh | bash
 source ~/.bashrc
-nvm install 22
-nvm use 22
-npm i -g @anthropic-ai/claude-code
-npm i -g opencode-ai
-claude --version
-opencode --version
+nvm install 22 && nvm alias default 22 && nvm use 22
+```
 
+### 4. Artefatos CLI
+
+```bash
+npm i -g @anthropic-ai/claude-code   # TRIFORCE
+npm i -g opencode-ai                 # MASTERSWORD
+# MAJORA (Codex) — instalar separadamente se necessário
+```
+
+Versões validadas em **2026-05-06**:
+- Claude Code: `2.1.131` via npm global (nvm)
+- OpenCode: `1.14.39`
+- Node: `v22.22.2`
+
+### 5. Clonar e configurar
+
+```bash
 git clone https://github.com/OWNERmaster/Mineru-s-Construct.git ~/Agents
 cd ~/Agents
 
@@ -121,59 +221,32 @@ export GROQ_KEY_2="..."
 export GROQ_KEY_3="..."
 export WA_OWNER="5537..."
 export WA_ALLOW_FROM="5537...,5537..."
-bash setup.sh
 
+bash setup.sh   # gera hyrule_env.py + instala dependências Python
+```
+
+### 6. Subir
+
+```bash
 python3 startup_services.py start
 python3 startup_services.py status
 ```
 
-## Claude Code CLI
+Status esperado:
 
-Configuracao validada no servidor em 2026-05-06:
-
-```text
-Install method: npm global via nvm
-Node: v22.22.2
-Claude Code: 2.1.131
-Auto-updates: enabled
-Update permissions: Yes
-Auto-update channel: latest
+```
+Hyrule Proxy    : rodando
+Discord bot     : online
+Supervisor      : rodando
+WhatsApp bot    : rodando
+Triforce        : rodando
+Majora          : rodando
+Mastersword     : rodando
 ```
 
-Comandos uteis:
+---
 
-```bash
-claude --version
-claude update
-claude doctor
-```
-
-## Operacao
-
-```bash
-python3 ~/Agents/startup_services.py status
-python3 ~/Agents/startup_services.py start
-python3 ~/Agents/startup_services.py restart
-python3 ~/Agents/startup_services.py restart-nolimp
-python3 ~/Agents/startup_services.py stop
-```
-
-Logs principais:
-
-```bash
-tail -f ~/Agents/DISCORD/supervisor_out.log
-tail -f ~/Agents/DISCORD/bot_error.log
-tail -f ~/Agents/link-bot/.linkbot/whatsapp_err.log
-tail -f ~/Agents/triforce_daemon.log
-tail -f ~/Agents/majora.log
-tail -f ~/Agents/mastersword.log
-tail -f ~/Agents/CLAUDE\ CODE/proxy_runtime.log
-```
-
-## Systemd
-
-O servico recomendado chama `startup_services.py`, que sobe proxy, Discord,
-supervisor, WhatsApp, TRIFORCE, MAJORA e MASTERSWORD.
+## ✦ Systemd — Autostart
 
 ```ini
 [Unit]
@@ -196,27 +269,67 @@ TimeoutStopSec=60
 WantedBy=multi-user.target
 ```
 
-## Seguranca
+```bash
+sudo tee /etc/systemd/system/hyrule.service > /dev/null <<'EOF'
+# cole o bloco acima
+EOF
+sudo systemctl daemon-reload
+sudo systemctl enable hyrule
+sudo systemctl start hyrule
+```
 
-Nao commitar:
+---
 
-- `hyrule_env.py`
-- `.claude/.credentials.json`
-- tokens OAuth, OpenRouter, Groq, Discord ou GitHub
-- sessoes WhatsApp em `link-bot/.linkbot/`
-- filas e locks de runtime
+## ✦ Healthcheck
 
-Se algum segredo aparecer no git, revogue e gere outro.
+```bash
+python3 check_llms.py
+python3 check_discord_logs.py
+python3 check_claude_queue.py
+curl http://localhost:7331/status
+curl http://localhost:7332/status
+curl http://localhost:8765/v1/models
+curl http://localhost:11434/api/tags
+opencode --version && opencode debug config
+```
 
-## Troubleshooting
+---
 
-| Problema | Acao |
-|---|---|
-| Discord offline | Ver `DISCORD_TOKEN`, intents do bot e `curl localhost:7331/status` |
-| WhatsApp pede QR | Parear de novo ou restaurar `link-bot/.linkbot/session.sqlite` |
-| Ollama sem modelo | `ollama pull qwen2.5:7b` |
-| Proxy fora | `python3 startup_services.py restart-nolimp` e log `proxy_runtime.log` |
-| Claude auto-update falha | `claude doctor`, depois `npm i -g @anthropic-ai/claude-code` |
-| TRIFORCE 401 | Rodar `claude` interativo e renovar OAuth |
-| MAJORA duplicando | Conferir `.majora_processing.lock` e `majora.log` |
-| MASTERSWORD falha | `opencode --version`, `opencode debug config`, conferir `mastersword.log` |
+## ✦ Pedras Proibidas — O que não vai para o git
+
+```
+hyrule_env.py
+.claude/.credentials.json
+claude_queue.json  /  codex_queue.json  /  mastersword_queue.json
+.majora_processing.lock  /  .mastersword_processing.lock
+link-bot/.linkbot/          ← sessão WhatsApp
+triforce_history/
+logs e pids de runtime
+```
+
+Se um segredo aparecer no histórico do git: **revogue e gere outro imediatamente.**
+
+---
+
+## ✦ Pergaminhos de Diagnóstico
+
+| Problema                        | Ação                                                         |
+|---------------------------------|--------------------------------------------------------------|
+| Discord offline                 | Verificar `DISCORD_TOKEN`, intents e `curl localhost:7331/status` |
+| WhatsApp pede QR                | Restaurar `link-bot/.linkbot/session.sqlite` ou parear novamente |
+| Ollama sem modelo               | `ollama pull qwen2.5:7b`                                    |
+| Proxy fora                      | `startup_services.py restart-nolimp` + `proxy_runtime.log`  |
+| TRIFORCE 401                    | Abrir `claude` interativo e renovar login OAuth              |
+| MAJORA duplicando               | Conferir `.majora_processing.lock` e `majora.log`           |
+| MASTERSWORD falha               | `opencode --version`, `opencode debug config`, `mastersword.log` |
+| Claude auto-update falha        | `claude doctor`, depois `npm i -g @anthropic-ai/claude-code` |
+| OpenRouter / Groq 429           | Normal — supervisor rotaciona chaves automaticamente         |
+
+---
+
+```
+ ╔══════════════════════════════════════════════════════════════════╗
+ ║  "O tempo não destrói o que foi construído com propósito."      ║
+ ║                                          — Mineru               ║
+ ╚══════════════════════════════════════════════════════════════════╝
+```
