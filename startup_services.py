@@ -15,6 +15,7 @@ Uso:
 """
 import json
 import os
+import shutil
 import sys
 import socket
 import subprocess
@@ -88,6 +89,12 @@ def _porta_livre(port: int) -> bool:
 
 def _porta_ativa(port: int) -> bool:
     return not _porta_livre(port)
+
+
+def _ffmpeg_disponivel() -> bool:
+    if shutil.which("ffmpeg"):
+        return True
+    return os.path.isfile("/usr/bin/ffmpeg") and os.access("/usr/bin/ffmpeg", os.X_OK)
 
 
 def _spawn(args: list[str], cwd: Path, stdout_path: Path, pid_path: Path, stderr_path: Path | None = None):
@@ -522,6 +529,7 @@ def cmd_status():
     print(f"Supervisor:   {'● rodando' if sup_ok else '○ parado'}")
 
     print(f"WhatsApp bot: {'● rodando' if _whatsapp_rodando() else '○ parado'}")
+    print(f"FFmpeg:       {'● instalado' if _ffmpeg_disponivel() else '○ ausente'}")
 
     pid_tri = _ler_pid(TRIFORCE_DAEMON_PID)
     tri_ok = bool(pid_tri) and _pid_ativo(pid_tri)

@@ -2,11 +2,12 @@
 Helpers para criação de figurinhas WhatsApp.
 
 Refinado pra ficar 100% compatível com o formato esperado pelo app:
-- Estática: 512x512, WebP, ≤100KB, fundo transparente preservado
-- Animada: 512x512, WebP animado, ≤500KB, ≤10s, ≤30fps
-- Metadados EXIF (sticker pack, autor) — opcional mas recomendado
+- Estática: 512x512, WebP, ≤100KB, corte quadrado por padrao
+- Animada: 512x512, WebP animado, ≤500KB, ≤10s, corte quadrado
+- Metadados EXIF sao opcionais; o envio direto prioriza WebP valido e leve
 
-Requer FFmpeg no PATH.
+Requer FFmpeg instalado. Usa o PATH primeiro e cai para /usr/bin/ffmpeg
+quando o servico sobe com ambiente reduzido.
 """
 
 import asyncio
@@ -22,6 +23,17 @@ from typing import Optional, Tuple
 STICKER_PACK_NAME = "Pergaminhos do Aventureiro"
 STICKER_AUTHOR = "Link de Hyrule"
 STICKER_EMOJIS = ["⚔️", "🗡️", "🛡️"]
+SYSTEM_FFMPEG = "/usr/bin/ffmpeg"
+
+
+def ffmpeg_bin() -> Optional[str]:
+    """Retorna o binario do FFmpeg, mesmo com PATH reduzido no servico."""
+    found = shutil.which("ffmpeg")
+    if found:
+        return found
+    if os.path.isfile(SYSTEM_FFMPEG) and os.access(SYSTEM_FFMPEG, os.X_OK):
+        return SYSTEM_FFMPEG
+    return None
 
 
 async def _run_cmd(cmd: list, timeout: int = 60) -> Tuple[int, str, str]:
@@ -46,36 +58,69 @@ async def _run_cmd(cmd: list, timeout: int = 60) -> Tuple[int, str, str]:
 
 
 def has_ffmpeg() -> bool:
-    return shutil.which("ffmpeg") is not None
+    return ffmpeg_bin() is not None
+
+
+def _sticker_filter(fit: str = "cover", fps: Optional[int] = None,
+                    alpha: bool = True) -> str:
+    """
+    Monta filtro 512x512.
+
+    cover: preenche o quadrado com crop central, melhor pra figurinha pronta.
+    contain: preserva tudo e completa com transparencia.
+    """
+    mode = "contain" if fit == "contain" else "cover"
+    if mode == "contain":
+        parts = [
+            "scale=512:512:force_original_aspect_ratio=decrease:flags=lanczos",
+            "pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000",
+        ]
+    else:
+        parts = [
+            "scale=512:512:force_original_aspect_ratio=increase:flags=lanczos",
+            "crop=512:512",
+        ]
+    if fps:
+        parts.append(f"fps={fps}")
+    parts.append("setsar=1")
+    parts.append("format=rgba" if alpha else "format=yuv420p")
+    return ",".join(parts)
+
+
+def _file_kb(path: str) -> float:
+    return os.path.getsize(path) / 1024
 
 
 async def make_static_sticker(input_path: str, output_path: str,
-                              max_size_kb: int = 100) -> Tuple[bool, str]:
+                              max_size_kb: int = 100,
+                              fit: str = "cover") -> Tuple[bool, str]:
     """
     Converte imagem em sticker estático WhatsApp.
 
     Retorna (sucesso, mensagem).
     """
     if not has_ffmpeg():
-        return False, "FFmpeg não encontrado no PATH"
+        return False, "FFmpeg não encontrado"
 
     if not os.path.exists(input_path):
         return False, f"Entrada não existe: {input_path}"
 
-    # Tenta com qualidade alta, depois reduz se passar do limite
-    for quality in [80, 60, 40, 25, 15]:
+    ffmpeg = ffmpeg_bin()
+
+    sticker_filter = _sticker_filter(fit=fit)
+
+    # Comeca alto e reduz em passos pequenos para segurar qualidade sem passar do limite.
+    for quality in [92, 86, 80, 74, 68, 60, 52, 44, 36, 28, 20]:
         cmd = [
-            "ffmpeg", "-y",
+            ffmpeg, "-y",
             "-i", input_path,
-            "-vf",
-            "scale=512:512:force_original_aspect_ratio=decrease,"
-            "pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,"
-            "format=rgba",
+            "-vf", sticker_filter,
+            "-frames:v", "1",
             "-lossless", "0",
             "-compression_level", "6",
+            "-preset", "picture",
             "-q:v", str(quality),
             "-an",
-            "-vsync", "0",
             output_path,
         ]
         rc, _out, err = await _run_cmd(cmd, timeout=30)
@@ -83,18 +128,17 @@ async def make_static_sticker(input_path: str, output_path: str,
         if rc != 0:
             continue
 
-        size_kb = os.path.getsize(output_path) / 1024
+        size_kb = _file_kb(output_path)
         if size_kb <= max_size_kb:
-            # Adiciona metadados WhatsApp
-            _add_webp_metadata(output_path)
-            return True, f"OK ({size_kb:.1f}KB, q={quality})"
+            return True, f"OK ({size_kb:.1f}KB, q={quality}, fit={fit})"
 
     return False, "Não foi possível ajustar pro tamanho máximo"
 
 
 async def make_animated_sticker(input_path: str, output_path: str,
                                 max_duration: float = 6.0,
-                                max_size_kb: int = 500
+                                max_size_kb: int = 500,
+                                fit: str = "cover"
                                 ) -> Tuple[bool, str]:
     """
     Converte vídeo/GIF em sticker animado WhatsApp.
@@ -102,31 +146,32 @@ async def make_animated_sticker(input_path: str, output_path: str,
     max_duration em segundos (limite real do WA é 10s, padrão 6s pra margem).
     """
     if not has_ffmpeg():
-        return False, "FFmpeg não encontrado no PATH"
+        return False, "FFmpeg não encontrado"
 
     if not os.path.exists(input_path):
         return False, f"Entrada não existe: {input_path}"
 
-    # Tenta combinações de fps + qualidade
+    ffmpeg = ffmpeg_bin()
+
+    # Tenta combinacoes de fps + qualidade. 15fps e 6s costumam ficar bons
+    # sem estourar 500KB; se precisar, reduz suavemente.
     attempts = [
-        (15, 60),
-        (15, 50),
-        (12, 50),
-        (12, 40),
-        (10, 40),
-        (10, 30),
-        (8, 30),
+        (15, 82),
+        (15, 72),
+        (12, 72),
+        (12, 62),
+        (10, 62),
+        (10, 52),
+        (8, 46),
+        (8, 36),
     ]
 
     for fps, quality in attempts:
         cmd = [
-            "ffmpeg", "-y",
+            ffmpeg, "-y",
             "-t", str(max_duration),
             "-i", input_path,
-            "-vf",
-            f"scale=512:512:force_original_aspect_ratio=decrease,"
-            f"pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,"
-            f"fps={fps}",
+            "-vf", _sticker_filter(fit=fit, fps=fps, alpha=False),
             "-loop", "0",
             "-lossless", "0",
             "-compression_level", "6",
@@ -141,19 +186,16 @@ async def make_animated_sticker(input_path: str, output_path: str,
         if rc != 0:
             continue
 
-        size_kb = os.path.getsize(output_path) / 1024
+        size_kb = _file_kb(output_path)
         if size_kb <= max_size_kb:
-            _add_webp_metadata(output_path, animated=True)
-            return True, f"OK ({size_kb:.1f}KB, fps={fps}, q={quality})"
+            return True, f"OK ({size_kb:.1f}KB, fps={fps}, q={quality}, fit={fit})"
 
     # Última tentativa: corta duração mais
     cmd = [
-        "ffmpeg", "-y",
+        ffmpeg, "-y",
         "-t", "3",
         "-i", input_path,
-        "-vf",
-        "scale=512:512:force_original_aspect_ratio=decrease,"
-        "pad=512:512:(ow-iw)/2:(oh-ih)/2:color=0x00000000,fps=8",
+        "-vf", _sticker_filter(fit=fit, fps=8, alpha=False),
         "-loop", "0",
         "-lossless", "0",
         "-compression_level", "6",
@@ -164,10 +206,9 @@ async def make_animated_sticker(input_path: str, output_path: str,
     ]
     rc, _out, err = await _run_cmd(cmd, timeout=60)
     if rc == 0:
-        size_kb = os.path.getsize(output_path) / 1024
+        size_kb = _file_kb(output_path)
         if size_kb <= max_size_kb:
-            _add_webp_metadata(output_path, animated=True)
-            return True, f"OK reduzido ({size_kb:.1f}KB)"
+            return True, f"OK reduzido ({size_kb:.1f}KB, fit={fit})"
 
     return False, f"Vídeo grande demais — tentei várias qualidades"
 

@@ -10,6 +10,19 @@ from bot.core.sticker import (
 )
 
 
+def _fit_mode(ctx: MessageContext) -> str:
+    text = f"{ctx.raw_text} {ctx.args_text}".lower()
+    keep_full = (
+        "inteira",
+        "sem cortar",
+        "sem crop",
+        "não corta",
+        "nao corta",
+        "com borda",
+    )
+    return "contain" if any(term in text for term in keep_full) else "cover"
+
+
 async def handle(ctx: MessageContext):
     if not has_ffmpeg():
         await ctx.reply(
@@ -39,6 +52,7 @@ async def handle(ctx: MessageContext):
     )
 
     out_path = str(Path(tempfile.gettempdir()) / "link_sticker.webp")
+    fit = _fit_mode(ctx)
 
     await ctx.reply("🗡️ Forjando uma runa Sheikah... aguarda os engenhos.")
 
@@ -46,11 +60,11 @@ async def handle(ctx: MessageContext):
         if is_video:
             ok, msg = await make_animated_sticker(
                 ctx.media_path, out_path,
-                max_duration=6.0, max_size_kb=500
+                max_duration=6.0, max_size_kb=500, fit=fit
             )
         else:
             ok, msg = await make_static_sticker(
-                ctx.media_path, out_path, max_size_kb=100
+                ctx.media_path, out_path, max_size_kb=100, fit=fit
             )
     except Exception as e:
         await ctx.reply(f"⚡ A forja explodiu: {e}")

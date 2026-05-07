@@ -67,8 +67,9 @@ def _registrar_tokens(key: str, modelo: str, prompt_tokens: int, completion_toke
             f.write(line)
 
 OLLAMA_URL    = "http://localhost:11434/api/chat"
-OLLAMA_MODEL  = "qwen2.5:7b"      # local fallback — tool calling via <tool_call>, ~4.7GB
+OLLAMA_MODEL  = "qwen3.5:9b"      # local fallback — tool calling via <tool_call>, ~6.6GB
 OLLAMA_CLOUD  = None                # reservado — definir modelo cloud quando decidido
+OLLAMA_ALL_TOOLS = True             # qwen3.5:9b aguenta o conjunto completo de tools
 
 try:
     from hyrule_env import GROQ_KEYS, OPENROUTER_KEYS as _OR_KEYS_ENV
@@ -511,11 +512,12 @@ def ollama_disponivel() -> bool:
 
 def _ollama_chat(model: str, payload: dict) -> dict | None:
     """Chamada genérica ao Ollama. Retorna o dict da resposta ou None."""
-    # Parâmetros otimizados para qwen2.5:7b tool calling (fonte: comunidade Ollama)
+    # Parâmetros conservadores para tool calling local.
     defaults = {
         "model":              model,
         "stream":             False,
-        "temperature":        0.7,
+        "think":              False,
+        "temperature":        0.3,
         "top_p":              0.8,
         "top_k":              20,
         "repeat_penalty":     1.05,
@@ -524,7 +526,7 @@ def _ollama_chat(model: str, payload: dict) -> dict | None:
     req  = urllib.request.Request(OLLAMA_URL, data=data,
            headers={"Content-Type": "application/json"}, method="POST")
     try:
-        with urllib.request.urlopen(req, timeout=60) as r:
+        with urllib.request.urlopen(req, timeout=180) as r:
             return json.loads(r.read())
     except Exception as e:
         log(f"Ollama [{model}] erro: {e}")
@@ -569,7 +571,12 @@ def _normalizar(texto: str) -> str:
 
 
 def _selecionar_tools(pedido: str) -> list:
-    """Filtra tools por intent do pedido. Max 5 tools — qwen2.5:7b aguenta bem."""
+    """Seleciona tools para o executor local."""
+    if OLLAMA_ALL_TOOLS:
+        log(f"QWEN tools selecionadas: TODAS ({len(TOOLS_DEFINICAO)})")
+        return TOOLS_DEFINICAO
+
+    # Fallback para modelos menores: filtra por intent para reduzir confusao.
     p = _normalizar(pedido)
 
     _busca_img = (
@@ -630,7 +637,7 @@ def _gerar_hint_sequencia(pedido: str, tools: list) -> str:
 
 def executar_qwen_react(pedido: str, usuario: str) -> str | None:
     """Loop ReAct: qwen age → vê resultado → age de novo. Até 5 rodadas.
-    Usa subset de tools filtradas por relevância (max 5) para não confundir o modelo.
+    Usa todas as tools quando OLLAMA_ALL_TOOLS estiver ativo.
     """
     tools_filtradas = _selecionar_tools(pedido)
     nomes_tools = [t["function"]["name"] for t in tools_filtradas]
@@ -794,7 +801,7 @@ def chamar_ollama_tools(pedido: str, system: str, tools: list) -> tuple[str | No
             msg        = data.get("message", {})
             tool_calls = msg.get("tool_calls") or []
             content    = (msg.get("content") or "").strip()
-            # qwen2.5 às vezes retorna <tool_call> no content em vez de tool_calls
+            # Qwen às vezes retorna <tool_call> no content em vez de tool_calls
             if not tool_calls and content:
                 tool_calls = _parse_tool_calls_from_content(content)
                 if tool_calls:

@@ -24,11 +24,11 @@ Todos os agentes ficam em `~/Agents/`.
 - **Watchdog embutido**: verifica o bot a cada 30s e reinicia automaticamente se cair
 - **Fluxo de resolução (ordem de prioridade):**
   1. `executar_pedido()` — Python puro, zero tokens (padrões hardcoded + navegação de pastas)
-  2. `executar_qwen_react()` — qwen2.5:7b ReAct loop (até 5 rodadas, tools filtradas)
+  2. `executar_qwen_react()` — qwen3.5:9b ReAct loop (até 5 rodadas, todas as tools)
   3. `chamar_agente_tools()` — OpenRouter (gpt-oss-20b → gpt-oss-120b → nemotron → trinity → llama → gemma)
   4. `chamar_groq_tools()` — Groq 0.3s
   5. `enfileirar_para_claude()` — TRIFORCE como último recurso
-- **Tool filtering:** `_selecionar_tools()` filtra por intent (8 categorias), max 3 tools para o qwen
+- **Qwen tools:** `_selecionar_tools()` retorna todas as tools quando `OLLAMA_ALL_TOOLS=True` (qwen3.5:9b)
 - **Deduplicação:** `pedidos_vistos` dict com chave `timestamp|pedido`, TTL 10 min — evita reprocessar mesmo evento, permite retry após TTL
 - **TRIFORCE-PEDIDO:** também tem dedup por timestamp
 
@@ -73,7 +73,7 @@ Todos os agentes ficam em `~/Agents/`.
 - Config versionada: `OPENCODE/mastersword.opencode.json`
 - Persona/config: `OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md` + `OPENCODE/roaming/LINK_PERSONA.md`
 - Retomada: `opencode link` e `mastersword link` seguem a mesma rotina de `link link`/`codex link`
-- Modelos padrão: OpenRouter free → Ollama local (`qwen2.5:7b`); Groq fica configurado para uso user2al
+- Modelos padrão: OpenRouter free → Ollama local (`qwen3.5:9b`); Groq fica configurado para uso user2al
 - Responde no canal do item: Discord (`localhost:7331`) ou WhatsApp (`localhost:7332`)
 - Usa `.mastersword_processing.lock`; stale após 15 min ou se o PID morreu
 
@@ -108,8 +108,10 @@ Todos os agentes ficam em `~/Agents/`.
 - Headers obrigatórios para não ser bloqueado pelo Cloudflare
 
 ### Ollama local
-- `qwen2.5:7b` — executor principal de tools no supervisor
-- Tool filtering: max 3 tools por pedido (`_selecionar_tools()`)
+- `qwen3.5:9b` — executor principal de tools no supervisor
+- `qwen2.5:7b` removido
+- `OLLAMA_ALL_TOOLS=True`: qwen recebe o conjunto completo de 17 tools
+- Swap local ampliado para `/swap.img` 10G para dar margem ao modelo
 
 ## HTTP API do bot (porta 7331)
 - `POST /send` — envia mensagem
