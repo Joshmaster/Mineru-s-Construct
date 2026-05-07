@@ -179,7 +179,7 @@ ua.bat
 - Está em **Windows 11**, usa Python + pip
 - O comando `link` é o ponto de entrada diário — deve continuar funcionando
 - Comunicação **sempre em português do Brasil**
-- Na persona do Link, OWNER é chamado de "o aventureiro OWNER"
+- Na persona do Link, OWNER é chamado de "o aventureiro"
 
 ---
 
