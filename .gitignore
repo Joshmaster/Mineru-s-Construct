@@ -1,5 +1,6 @@
 # ── Credenciais — NUNCA commitar ─────────────────────────────────────────────
 hyrule_env.py
+local_secrets/
 *.env
 .env*
 
