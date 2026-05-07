@@ -30,7 +30,7 @@ temperado em batalha e selado neste repositório para que o conhecimento não se
 O **Link** habita o sistema como assistente: bot no Discord, bot no WhatsApp,
 supervisor de LLMs, proxy, e três artefatos de código — **TRIFORCE**, **MAJORA** e **MASTERSWORD**.
 
-Repo: [github.com/OWNERmaster/Mineru-s-Construct](https://github.com/OWNERmaster/Mineru-s-Construct)
+Repo: [github.com/Joshmaster/Mineru-s-Construct](https://github.com/Joshmaster/Mineru-s-Construct)
 Runtime: Ubuntu Server em `~/Agents/`
 Credenciais: fora do git, em `hyrule_env.py` (gerado por `setup.sh`)
 
@@ -211,7 +211,7 @@ Versões validadas em **2026-05-06**:
 ### 5. Clonar e configurar
 
 ```bash
-git clone https://github.com/OWNERmaster/Mineru-s-Construct.git ~/Agents
+git clone https://github.com/Joshmaster/Mineru-s-Construct.git ~/Agents
 cd ~/Agents
 
 export DISCORD_TOKEN="..."

@@ -80,7 +80,7 @@ Todos rodando apos startup_services.py restart:
 - git push origin master — commit ae235c4 local, nao subiu ao GitHub ainda
   Motivo: sem PAT (Personal Access Token) do GitHub no servidor
   Solucao: rodar git push com credenciais, ou salvar token em hyrule_env.py como GITHUB_TOKEN e configurar:
-    git remote set-url origin https://{GITHUB_TOKEN}@github.com/OWNERmaster/Mineru-s-Construct.git
+    git remote set-url origin https://{GITHUB_TOKEN}@github.com/Joshmaster/Mineru-s-Construct.git
 
 ---
 Atualizado ao encerrar cada sessao. Nao acumula — sobrescreve.

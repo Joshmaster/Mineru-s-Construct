@@ -101,7 +101,7 @@ de `link link`, `claude link` e `codex link`.
 ## 6. Clonar repo
 
 ```bash
-git clone https://github.com/OWNERmaster/Mineru-s-Construct.git ~/Agents
+git clone https://github.com/Joshmaster/Mineru-s-Construct.git ~/Agents
 cd ~/Agents
 ```
 
