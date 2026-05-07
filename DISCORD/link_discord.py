@@ -29,7 +29,7 @@ except ImportError:
     GROQ_KEYS = []
 
 OLLAMA_URL   = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "qwen2.5:7b"
+OLLAMA_MODEL = "qwen3.5:9b"
 MODELOS_FALLBACK = [
     {"url": "https://openrouter.ai/api/v1/chat/completions",   "model": "google/gemma-4-31b-it:free",               "keys": OPENROUTER_KEYS},
     {"url": "https://api.groq.com/openai/v1/chat/completions", "model": "meta-llama/llama-4-scout-17b-16e-instruct","keys": GROQ_KEYS},
@@ -220,6 +220,14 @@ def carregar_persona(ultima_resposta: str = "", autor: str = "") -> str:
     return base
 
 
+def carregar_persona_local() -> str:
+    return (
+        "Voce e Link, parceiro do OWNER. Responda em portugues do Brasil, curto, "
+        "casual e direto. Nao diga que e IA, bot ou sistema. Pense internamente "
+        "se precisar, mas entregue apenas a resposta final."
+    )
+
+
 def _nome_display(username: str) -> str:
     """Retorna o nome amigavel do usuario (ex: OWNER, USER2) ou o username Discord."""
     # Busca pelo cache inverso: username Discord -> nome amigavel
@@ -273,7 +281,9 @@ async def responder_com_ia(autor: str, mensagem: str) -> str:
                 async with session.post(
                     modelo["url"], headers=headers,
                     json={"model": modelo["model"], "messages": msgs,
-                          "max_tokens": 256, "temperature": 0.85},
+                          "max_tokens": 256, "temperature": 0.85,
+                          **({"reasoning": {"enabled": True, "effort": "low", "exclude": True}}
+                             if not is_groq else {})},
                     timeout=aiohttp_client.ClientTimeout(total=12)
                 ) as resp:
                     if resp.status in (401, 403):
@@ -308,22 +318,92 @@ async def responder_com_ia(autor: str, mensagem: str) -> str:
             async with session.post(
                 OLLAMA_URL,
                 json={"model": OLLAMA_MODEL, "stream": False,
+                      "think": True,
                       "options": {"temperature": 0.85, "top_p": 0.9,
                                   "repeat_penalty": 1.1, "num_predict": 120},
                       "messages": msgs},
-                timeout=aiohttp_client.ClientTimeout(total=30)
+                timeout=aiohttp_client.ClientTimeout(total=180)
             ) as resp:
                 data = await resp.json()
                 resposta = data.get("message", {}).get("content", "").strip()
+                resposta = re.sub(r'<think>.*?</think>', '', resposta, flags=re.DOTALL | re.IGNORECASE).strip()
                 if resposta:
                     print(f"[IA] qwen local (fallback final): {resposta[:60]}", flush=True)
                     historico_ia[autor].append({"role": "assistant", "content": resposta})
                     salvar_historico(autor, historico_ia[autor])
                     return resposta
+                async with session.post(
+                    OLLAMA_URL,
+                    json={"model": OLLAMA_MODEL, "stream": False,
+                          "think": False,
+                          "options": {"temperature": 0.85, "top_p": 0.9,
+                                      "repeat_penalty": 1.1, "num_predict": 120},
+                          "messages": msgs},
+                    timeout=aiohttp_client.ClientTimeout(total=90)
+                ) as retry_resp:
+                    retry_data = await retry_resp.json()
+                    resposta = retry_data.get("message", {}).get("content", "").strip()
+                    resposta = re.sub(r'<think>.*?</think>', '', resposta, flags=re.DOTALL | re.IGNORECASE).strip()
+                    if resposta:
+                        print(f"[IA] qwen local (fallback sem think): {resposta[:60]}", flush=True)
+                        historico_ia[autor].append({"role": "assistant", "content": resposta})
+                        salvar_historico(autor, historico_ia[autor])
+                        return resposta
     except Exception as e:
         print(f"[IA] qwen local também falhou: {e}", flush=True)
 
     return "..."
+
+
+async def responder_com_ia_local(autor: str, mensagem: str, think: bool = False) -> str:
+    """Força conversa direta com o Ollama local, sem OpenRouter/Groq."""
+    if autor not in historico_ia:
+        historico_ia[autor] = carregar_historico(autor)
+
+    nome_display = _nome_display(autor)
+    historico_ia[autor].append({"role": "user", "content": f"[Mensagem de {nome_display}]: {mensagem}"})
+    if len(historico_ia[autor]) > 20:
+        historico_ia[autor] = historico_ia[autor][-20:]
+
+    ultima_resposta = ""
+    for entry in reversed(historico_ia[autor]):
+        if entry["role"] == "assistant":
+            ultima_resposta = entry["content"][:120]
+            break
+
+    system = carregar_persona_local()
+    system += (
+        "\n\n# Modo local\n"
+        "Voce esta respondendo pelo modelo local do OWNER. Pense internamente se precisar, "
+        "mas entregue so a resposta final, curta e natural."
+    )
+    msgs = [{"role": "system", "content": system}, *historico_ia[autor]]
+
+    try:
+        async with aiohttp_client.ClientSession() as session:
+            async with session.post(
+                OLLAMA_URL,
+                json={"model": OLLAMA_MODEL, "stream": False,
+                      "think": think,
+                      "options": {"temperature": 0.8, "top_p": 0.9,
+                                  "repeat_penalty": 1.1, "num_predict": 120},
+                      "messages": msgs},
+                timeout=aiohttp_client.ClientTimeout(total=90)
+            ) as resp:
+                data = await resp.json()
+                resposta = data.get("message", {}).get("content", "").strip()
+                resposta = re.sub(r'<think>.*?</think>', '', resposta, flags=re.DOTALL | re.IGNORECASE).strip()
+                if resposta:
+                    historico_ia[autor].append({"role": "assistant", "content": resposta})
+                    salvar_historico(autor, historico_ia[autor])
+                    return resposta
+    except Exception as e:
+        print(f"[IA] qwen local !Z falhou: {e}", flush=True)
+
+    if think:
+        return await responder_com_ia_local(autor, mensagem, think=False)
+
+    return "não consegui falar com o local agora"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -493,6 +573,35 @@ async def on_message(message):
     # ── TRIFORCE: escalação direta, sem passar pelo LLM ──────────────────────
     _txt = (message.content or "").strip()
     _txt_norm = _p_norm.strip()
+
+    if re.match(r'^!?\s*zpensa\b', _txt_norm):
+        pedido_z = re.sub(r'^!?\s*zpensa\s*', '', _txt, flags=re.IGNORECASE).strip()
+        if not pedido_z:
+            await message.channel.send("manda o texto depois do !zpensa")
+            registrar("OUT", "Link", autor, "manda o texto depois do !zpensa")
+            return
+        async with message.channel.typing():
+            resposta_z = await responder_com_ia_local(autor, pedido_z, think=True)
+        resposta_z = sanitizar(resposta_z)
+        if resposta_z:
+            await message.channel.send(resposta_z)
+            registrar("OUT", "Link", autor, resposta_z)
+        return
+
+    if re.match(r'^!?\s*z\b', _txt_norm):
+        pedido_z = re.sub(r'^!?\s*z\s*', '', _txt, flags=re.IGNORECASE).strip()
+        if not pedido_z:
+            await message.channel.send("manda o texto depois do !Z")
+            registrar("OUT", "Link", autor, "manda o texto depois do !Z")
+            return
+        async with message.channel.typing():
+            resposta_z = await responder_com_ia_local(autor, pedido_z, think=False)
+        resposta_z = sanitizar(resposta_z)
+        if resposta_z:
+            await message.channel.send(resposta_z)
+            registrar("OUT", "Link", autor, resposta_z)
+        return
+
     if re.match(r'^triforce\b', _txt_norm):
         # Extrai o pedido (tudo depois de "TRIFORCE")
         pedido_tf = re.sub(r'^triforce\s*', '', _txt, flags=re.IGNORECASE).strip()

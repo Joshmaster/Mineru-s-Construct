@@ -1,6 +1,6 @@
 """
 Fallback LLM para mensagens sem skill match.
-Hierarquia: OpenRouter → Groq → resposta padrão.
+Hierarquia: OpenRouter → Groq → Ollama local → resposta padrão.
 Carrega LINK_PERSONA.md como system prompt.
 """
 
@@ -47,6 +47,9 @@ GROQ_HEADERS = {
     "Referer":      "https://console.groq.com/",
 }
 
+OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_MODEL = "qwen3.5:9b"
+
 # ── Persona ──────────────────────────────────────────────────────────────────
 
 _PERSONA_FILE = (
@@ -86,6 +89,15 @@ def _load_persona() -> str:
     return _persona_cache
 
 
+def _load_local_persona() -> str:
+    return (
+        "Voce e Link, parceiro do OWNER. Responda em portugues do Brasil, curto, "
+        "casual e direto. Nao diga que e IA, bot ou sistema. Pense internamente "
+        "se precisar, mas entregue apenas a resposta final."
+        + _PERSONA_WHATSAPP_ADDON
+    )
+
+
 # ── Histórico por usuário ────────────────────────────────────────────────────
 
 _history: dict[str, list] = {}
@@ -123,6 +135,10 @@ def _extract_text(resp: dict) -> Optional[str]:
         return None
 
 
+def _strip_thinking(text: str) -> str:
+    return re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL | re.IGNORECASE).strip()
+
+
 # ── OpenRouter ───────────────────────────────────────────────────────────────
 
 def _call_openrouter(messages: list) -> Optional[str]:
@@ -139,6 +155,7 @@ def _call_openrouter(messages: list) -> Optional[str]:
                 "messages": messages,
                 "temperature": 0.85,
                 "max_tokens": 300,
+                "reasoning": {"enabled": True, "effort": "low", "exclude": True},
             }
             resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload)
             if resp:
@@ -168,6 +185,29 @@ def _call_groq(messages: list) -> Optional[str]:
                     log.debug(f"Groq ok: {model}")
                     return text.strip()
     return None
+
+
+# ── Ollama local ─────────────────────────────────────────────────────────────
+
+def _call_ollama(messages: list, think: bool = True) -> Optional[str]:
+    payload = {
+        "model": OLLAMA_MODEL,
+        "messages": messages,
+        "stream": False,
+        "think": think,
+        "options": {
+            "temperature": 0.8,
+            "top_p": 0.9,
+            "repeat_penalty": 1.1,
+            "num_predict": 120,
+        },
+    }
+    resp = _post(OLLAMA_URL, {"Content-Type": "application/json"}, payload, timeout=90)
+    if not resp:
+        return None
+    text = (resp.get("message", {}).get("content") or "").strip()
+    text = _strip_thinking(text)
+    return text or None
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -262,13 +302,49 @@ def chat(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
         )
     messages = [{"role": "system", "content": system}] + _get_history(user_id)
 
-    raw_reply = _call_openrouter(messages) or _call_groq(messages)
+    raw_reply = _call_openrouter(messages) or _call_groq(messages) or _call_ollama(messages, think=True)
+    if not raw_reply:
+        raw_reply = _call_ollama(messages, think=False)
 
     if not raw_reply:
         raw_reply = "🌀"
 
     reply, feedback = _processar_tags(raw_reply, user_id, usuario)
 
+    if not reply:
+        reply = feedback or "🌀"
+    elif feedback:
+        reply = f"{feedback}\n{reply}".strip()
+
+    _add_to_history(user_id, "assistant", reply)
+    return reply
+
+
+def chat_local(user_id: str, user_message: str, usuario: str = "OWNER", think: bool = False) -> str:
+    """Força conversa direta com o Ollama local, sem OpenRouter/Groq."""
+    _add_to_history(user_id, "user", user_message)
+
+    system = _load_local_persona()
+    system += (
+        "\n\n# Modo local\n"
+        "Voce esta respondendo pelo modelo local do OWNER. Pense internamente se precisar, "
+        "mas entregue so a resposta final, curta e natural."
+    )
+    if _is_owner(user_id):
+        system += (
+            "\n\n# Esta mensagem é do OWNER — o dono e parceiro desse sistema.\n"
+            "Ele é quem criou tudo isso, tem acesso total e mando sobre qualquer configuração.\n"
+            "Trate-o como parceiro de longa data, sem formalidade."
+        )
+
+    messages = [{"role": "system", "content": system}] + _get_history(user_id)
+    raw_reply = _call_ollama(messages, think=think)
+    if think and not raw_reply:
+        raw_reply = _call_ollama(messages, think=False)
+    if not raw_reply:
+        raw_reply = "não consegui falar com o local agora"
+
+    reply, feedback = _processar_tags(raw_reply, user_id, usuario)
     if not reply:
         reply = feedback or "🌀"
     elif feedback:
