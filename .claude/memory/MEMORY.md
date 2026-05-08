@@ -8,4 +8,3 @@
 - [Handoff de sessão](session_handoff.md) — estado da última sessão (Claude Code ou Codex), lido ao iniciar e escrito ao encerrar
 - [TRIFORCE e MAJORA](feedback_triforce_majora.md) — TRIFORCE chama Claude Code, MAJORA chama Codex CLI; ambos canal-aware (discord/whatsapp)
 - [Ambiente do servidor](project_environment.md) — Ubuntu Linux `~/Agents/`, nunca usar paths Windows hardcoded com username
-- [Tokens e segredos locais](project_local_secrets.md) — ~/Agents/local_secrets/ é gitignored; ler tokens.md antes de pedir credenciais ao OWNER

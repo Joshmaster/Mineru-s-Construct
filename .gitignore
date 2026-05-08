@@ -59,7 +59,8 @@ __pycache__/
 *.pyd
 
 # ── Memoria do projeto (dentro do repo, vai pro git) ─────────────────────────
-# .claude/memory/ → NAO ignorar, é parte do projeto
+# .claude/memory/ → NAO ignorar em geral, é parte do projeto
+.claude/memory/project_local_secrets.md
 
 # ── Claude Code (binario, dados e historico) ─────────────────────────────────
 CLAUDE CODE/bin/
