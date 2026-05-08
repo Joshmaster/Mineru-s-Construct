@@ -48,7 +48,7 @@ GROQ_HEADERS = {
 }
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "qwen3.5:9b"
+OLLAMA_MODEL = "qwen3:8b"
 
 # ── Persona ──────────────────────────────────────────────────────────────────
 
@@ -78,24 +78,53 @@ def _load_persona() -> str:
     global _persona_cache
     if _persona_cache is not None:
         return _persona_cache
+    owner_name = _owner_name()
+    wpp_owner_rule = (
+        f"\n\n# Nome do dono no WhatsApp\n"
+        f"O placeholder OWNER significa {owner_name}. Nunca escreva OWNER na resposta final; "
+        f"chame ele de {owner_name} ou fale direto com ele.\n"
+    )
     if _PERSONA_FILE.exists():
         text = _PERSONA_FILE.read_text(encoding="utf-8")
-        _persona_cache = text + _PERSONA_WHATSAPP_ADDON
+        _persona_cache = text + _PERSONA_WHATSAPP_ADDON + wpp_owner_rule
     else:
         _persona_cache = (
             "Você é Link, herói de Hyrule. Responda de forma curta e casual, "
-            "sem revelar que é um bot." + _PERSONA_WHATSAPP_ADDON
+            "sem revelar que é um bot." + _PERSONA_WHATSAPP_ADDON + wpp_owner_rule
         )
     return _persona_cache
 
 
+def _owner_name() -> str:
+    try:
+        from bot.core import access as access_ctl
+        cfg = access_ctl.load_config()
+        for key in [cfg.get("OWNER", ""), *(cfg.get("OWNER_IDS", []) or [])]:
+            name = access_ctl.display_name(key)
+            if name and not name.startswith("usuario "):
+                return str(name)
+    except Exception:
+        pass
+    return "Josh"
+
+
 def _load_local_persona() -> str:
+    owner_name = _owner_name()
     return (
-        "Voce e Link, parceiro do OWNER. Responda em portugues do Brasil, curto, "
+        f"Voce e Link, parceiro do {owner_name}. Responda em portugues do Brasil, curto, "
         "casual e direto. Nao diga que e IA, bot ou sistema. Pense internamente "
         "se precisar, mas entregue apenas a resposta final."
         + _PERSONA_WHATSAPP_ADDON
     )
+
+
+def _finalize_reply(reply: str, user_id: str) -> str:
+    """Evita vazar o placeholder OWNER no WhatsApp."""
+    if not reply:
+        return reply
+    name = _owner_name()
+    reply = re.sub(r"\bOWNER\b", name, reply)
+    return reply.strip()
 
 
 # ── Histórico por usuário ────────────────────────────────────────────────────
@@ -141,7 +170,7 @@ def _strip_thinking(text: str) -> str:
 
 # ── OpenRouter ───────────────────────────────────────────────────────────────
 
-def _call_openrouter(messages: list) -> Optional[str]:
+def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float = 0.85) -> Optional[str]:
     for key in OPENROUTER_KEYS:
         for model in OPENROUTER_MODELS:
             headers = {
@@ -153,8 +182,8 @@ def _call_openrouter(messages: list) -> Optional[str]:
             payload = {
                 "model": model,
                 "messages": messages,
-                "temperature": 0.85,
-                "max_tokens": 300,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
                 "reasoning": {"enabled": True, "effort": "low", "exclude": True},
             }
             resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload)
@@ -168,15 +197,15 @@ def _call_openrouter(messages: list) -> Optional[str]:
 
 # ── Groq ─────────────────────────────────────────────────────────────────────
 
-def _call_groq(messages: list) -> Optional[str]:
+def _call_groq(messages: list, max_tokens: int = 300, temperature: float = 0.85) -> Optional[str]:
     for key in GROQ_KEYS:
         for model in GROQ_MODELS:
             headers = {**GROQ_HEADERS, "Authorization": f"Bearer {key}"}
             payload = {
                 "model": model,
                 "messages": messages,
-                "temperature": 0.85,
-                "max_tokens": 300,
+                "temperature": temperature,
+                "max_tokens": max_tokens,
             }
             resp = _post("https://api.groq.com/openai/v1/chat/completions", headers, payload)
             if resp:
@@ -189,17 +218,17 @@ def _call_groq(messages: list) -> Optional[str]:
 
 # ── Ollama local ─────────────────────────────────────────────────────────────
 
-def _call_ollama(messages: list, think: bool = True) -> Optional[str]:
+def _call_ollama(messages: list, think: bool = True, num_predict: int = 120, temperature: float = 0.8) -> Optional[str]:
     payload = {
         "model": OLLAMA_MODEL,
         "messages": messages,
         "stream": False,
         "think": think,
         "options": {
-            "temperature": 0.8,
+            "temperature": temperature,
             "top_p": 0.9,
             "repeat_penalty": 1.1,
-            "num_predict": 120,
+            "num_predict": num_predict,
         },
     }
     resp = _post(OLLAMA_URL, {"Content-Type": "application/json"}, payload, timeout=90)
@@ -208,6 +237,84 @@ def _call_ollama(messages: list, think: bool = True) -> Optional[str]:
     text = (resp.get("message", {}).get("content") or "").strip()
     text = _strip_thinking(text)
     return text or None
+
+
+def _json_from_text(text: str) -> dict | None:
+    text = _strip_thinking(text or "")
+    m = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except Exception:
+        return None
+
+
+def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
+    """Classifica intenção de skill com IA. Retorna {"skill": nome|None, "args": str}."""
+    if not message or not skills:
+        return None
+
+    catalog = "\n".join(
+        f"- {item['name']}: {item.get('description', '')}"
+        for item in skills
+        if item.get("name")
+    )
+    system = (
+        "Voce e um classificador de intencao para um bot WhatsApp.\n"
+        "Escolha uma skill SOMENTE quando a mensagem pede claramente uma acao dessa skill.\n"
+        "Se for conversa, pergunta pessoal, brincadeira, memoria, saudacao ou ambigua, use null.\n"
+        "Nao acione lembrete quando a pessoa disser 'lembra de mim' ou estiver perguntando se voce a conhece.\n"
+        "Responda apenas JSON valido no formato: {\"skill\": string|null, \"args\": string}.\n\n"
+        f"Skills disponiveis:\n{catalog}"
+    )
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": message},
+    ]
+    raw = (
+        _call_openrouter(messages, max_tokens=80, temperature=0.0)
+        or _call_groq(messages, max_tokens=80, temperature=0.0)
+        or _call_ollama(messages, think=False, num_predict=80, temperature=0.0)
+    )
+    data = _json_from_text(raw or "")
+    if not isinstance(data, dict):
+        return None
+    skill = data.get("skill")
+    args = data.get("args", "")
+    if skill is not None and not isinstance(skill, str):
+        return None
+    return {"skill": skill.strip() if isinstance(skill, str) else None, "args": str(args or "").strip()}
+
+
+def extract_image_query(message: str, usuario: str = "") -> str | None:
+    """Usa IA para transformar um pedido de imagem em termo de busca visual."""
+    if not message or not message.strip():
+        return None
+
+    system = (
+        "Voce extrai a consulta ideal para buscar uma imagem na web.\n"
+        "Contexto: quem responde e Link, heroi de Zelda/Hyrule.\n"
+        "Resolva pronomes pelo contexto da conversa: 'sua foto', 'foto de voce', "
+        "'foto dele' quando se referir ao bot/personagem = Link, personagem de The Legend of Zelda.\n"
+        "Prefira termos visuais especificos. Para retrato/foto do Link, use: Link character portrait.\n"
+        "Para objetos, use o nome do objeto sem comandos extras.\n"
+        "Nao inclua palavras como buscar, mandar, enviar, web, internet, google.\n"
+        "Responda somente JSON valido: {\"query\":\"...\"}."
+    )
+    user = f"Usuario: {usuario or 'desconhecido'}\nPedido: {message}"
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+    raw = (
+        _call_openrouter(messages, max_tokens=60, temperature=0.0)
+        or _call_groq(messages, max_tokens=60, temperature=0.0)
+        or _call_ollama(messages, think=False, num_predict=60, temperature=0.0)
+    )
+    data = _json_from_text(raw or "")
+    query = str((data or {}).get("query") or "").strip()
+    return query[:120] or None
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
@@ -274,11 +381,8 @@ def _processar_tags(reply: str, user_id: str, usuario: str) -> tuple:
 
 def _is_owner(user_id: str) -> bool:
     try:
-        import json
-        from pathlib import Path
-        cfg_path = Path(__file__).resolve().parents[2] / "config" / "config.json"
-        cfg = json.loads(cfg_path.read_text(encoding="utf-8"))
-        return str(user_id) == str(cfg.get("OWNER", ""))
+        from bot.core import access as access_ctl
+        return access_ctl.is_admin(user_id)
     except Exception:
         return False
 
@@ -295,10 +399,17 @@ def chat(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
 
     system = _load_persona()
     if _is_owner(user_id):
+        owner_name = _owner_name()
         system += (
-            "\n\n# Esta mensagem é do OWNER — o dono e parceiro desse sistema.\n"
+            f"\n\n# Esta mensagem é do {owner_name} — o dono e parceiro desse sistema.\n"
+            f"O nome real dele é {owner_name}. Nunca chame ele de OWNER; isso é só placeholder interno.\n"
             "Ele é quem criou tudo isso, tem acesso total e mando sobre qualquer configuração.\n"
             "Trate-o como parceiro de longa data, sem formalidade."
+        )
+    else:
+        system += (
+            f"\n\n# Esta mensagem é de {usuario}, um usuário comum autorizado.\n"
+            "Não trate essa pessoa como OWNER e não diga que ela é dona do sistema."
         )
     messages = [{"role": "system", "content": system}] + _get_history(user_id)
 
@@ -315,6 +426,7 @@ def chat(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
         reply = feedback or "🌀"
     elif feedback:
         reply = f"{feedback}\n{reply}".strip()
+    reply = _finalize_reply(reply, user_id)
 
     _add_to_history(user_id, "assistant", reply)
     return reply
@@ -327,14 +439,21 @@ def chat_local(user_id: str, user_message: str, usuario: str = "OWNER", think: b
     system = _load_local_persona()
     system += (
         "\n\n# Modo local\n"
-        "Voce esta respondendo pelo modelo local do OWNER. Pense internamente se precisar, "
+        f"Voce esta respondendo pelo modelo local do {_owner_name()}. Pense internamente se precisar, "
         "mas entregue so a resposta final, curta e natural."
     )
     if _is_owner(user_id):
+        owner_name = _owner_name()
         system += (
-            "\n\n# Esta mensagem é do OWNER — o dono e parceiro desse sistema.\n"
+            f"\n\n# Esta mensagem é do {owner_name} — o dono e parceiro desse sistema.\n"
+            f"O nome real dele é {owner_name}. Nunca chame ele de OWNER; isso é só placeholder interno.\n"
             "Ele é quem criou tudo isso, tem acesso total e mando sobre qualquer configuração.\n"
             "Trate-o como parceiro de longa data, sem formalidade."
+        )
+    else:
+        system += (
+            f"\n\n# Esta mensagem é de {usuario}, um usuário comum autorizado.\n"
+            "Não trate essa pessoa como OWNER e não diga que ela é dona do sistema."
         )
 
     messages = [{"role": "system", "content": system}] + _get_history(user_id)
@@ -349,6 +468,43 @@ def chat_local(user_id: str, user_message: str, usuario: str = "OWNER", think: b
         reply = feedback or "🌀"
     elif feedback:
         reply = f"{feedback}\n{reply}".strip()
+    reply = _finalize_reply(reply, user_id)
 
     _add_to_history(user_id, "assistant", reply)
     return reply
+
+
+def chat_local_tools(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
+    """Usa o executor local com tools para !zpensa; cai no chat local puro se nada resolver."""
+    try:
+        import bot_supervisor as supervisor
+
+        p = supervisor._normalizar(user_message)
+        quer_web = any(x in p for x in ["busca", "pesquis", "internet", "google", "procur", "duckduck", "web"])
+        quer_img = any(x in p for x in ["imagem", "foto", "png", "jpg", "figura", "ilustracao", "artwork", "arte"])
+        if quer_web and not quer_img:
+            query = re.sub(r"(?i)^.*?(?:busca|pesquisa|procura|google|web|internet)\s+(?:na\s+internet\s+|no\s+google\s+|por\s+)?", "", user_message).strip()
+            raw_reply = supervisor.buscar_internet(query or user_message)
+            if raw_reply:
+                _add_to_history(user_id, "user", user_message)
+                _add_to_history(user_id, "assistant", raw_reply)
+                return raw_reply
+
+        if supervisor.ollama_disponivel():
+            raw_reply = supervisor.executar_qwen_react(
+                user_message, usuario, usar_todas_tools=False, max_rodadas=3
+            )
+            if raw_reply:
+                reply, feedback = _processar_tags(raw_reply, user_id, usuario)
+                if not reply:
+                    reply = feedback or "🌀"
+                elif feedback:
+                    reply = f"{feedback}\n{reply}".strip()
+                reply = _finalize_reply(reply, user_id)
+                _add_to_history(user_id, "user", user_message)
+                _add_to_history(user_id, "assistant", reply)
+                return reply
+    except Exception as e:
+        log.warning(f"chat_local_tools falhou: {e}")
+
+    return chat_local(user_id, user_message, usuario, think=True)

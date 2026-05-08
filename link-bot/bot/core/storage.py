@@ -70,7 +70,24 @@ class Storage:
             value TEXT,
             PRIMARY KEY (user_jid, key)
         );
+
+        CREATE TABLE IF NOT EXISTS contacts (
+            identity_key TEXT PRIMARY KEY,
+            contact_uid TEXT,
+            name TEXT NOT NULL,
+            role TEXT DEFAULT 'user',
+            source TEXT,
+            updated_at INTEGER NOT NULL
+        );
         """)
+        cols = {row["name"] for row in c.execute("PRAGMA table_info(contacts)").fetchall()}
+        if "contact_uid" not in cols:
+            c.execute("ALTER TABLE contacts ADD COLUMN contact_uid TEXT")
+        c.execute(
+            "UPDATE contacts SET contact_uid=identity_key "
+            "WHERE contact_uid IS NULL OR contact_uid=''"
+        )
+        c.execute("CREATE INDEX IF NOT EXISTS idx_contacts_uid ON contacts(contact_uid)")
         self.conn.commit()
 
     # ============ TODOs ============

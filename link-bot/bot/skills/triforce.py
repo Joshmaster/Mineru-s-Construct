@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from bot.core.router import Skill
 from bot.core.context import MessageContext
+from bot.core import access as access_ctl
 
 _AGENTS_DIR  = Path(__file__).resolve().parents[3]
 CLAUDE_QUEUE = _AGENTS_DIR / "claude_queue.json"
@@ -24,7 +25,7 @@ def _is_owner(ctx: MessageContext) -> bool:
     try:
         cfg = json.loads(CONFIG_PATH.read_text(encoding="utf-8"))
         sid = str(getattr(ctx.sender_jid, "User", "") or ctx.sender_jid)
-        return sid == str(cfg.get("OWNER", ""))
+        return access_ctl.is_admin(ctx.sender_jid, ctx.chat_jid, sid, cfg=cfg)
     except Exception:
         return False
 

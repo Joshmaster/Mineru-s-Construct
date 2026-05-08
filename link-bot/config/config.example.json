@@ -3,9 +3,19 @@
 
   "MODE": "TOTK puro (sem LLM)",
 
+  "OWNER": "5511999999999",
+  "_comentario_owner_ids": "Somente OWNER/OWNER_IDS sao admin. ALLOW_FROM libera usuario comum, sem permissao admin.",
+  "OWNER_IDS": [
+    "5511999999999",
+    "ID_INTERNO_DO_WHATSAPP_SE_HOUVER"
+  ],
+
   "ALLOW_FROM": [
     "5511999999999"
   ],
+  "CONTACT_NAMES": {
+    "5511999999999": "Nome do usuário comum"
+  },
 
   "STORAGE_PATH": "${HOME}/.linkbot/data.db",
   "SESSION_PATH": "${HOME}/.linkbot/session.sqlite",

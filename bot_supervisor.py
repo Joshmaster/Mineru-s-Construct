@@ -18,6 +18,7 @@ from pathlib import Path
 
 _log_lock       = threading.Lock()
 _pedido_lock    = threading.Lock()
+_recent_image_urls: dict[str, list[str]] = {}
 
 # Força UTF-8 no stdout/stderr (Windows usa cp1252 por padrão)
 if sys.platform == "win32":
@@ -67,9 +68,9 @@ def _registrar_tokens(key: str, modelo: str, prompt_tokens: int, completion_toke
             f.write(line)
 
 OLLAMA_URL    = "http://localhost:11434/api/chat"
-OLLAMA_MODEL  = "qwen3.5:9b"      # local fallback — tool calling via <tool_call>, ~6.6GB
+OLLAMA_MODEL  = "qwen3:8b"        # local fallback — tool calling via Ollama, ~5GB
 OLLAMA_CLOUD  = None                # reservado — definir modelo cloud quando decidido
-OLLAMA_ALL_TOOLS = True             # qwen3.5:9b aguenta o conjunto completo de tools
+OLLAMA_ALL_TOOLS = True             # qwen3:8b recebe o conjunto completo de tools
 
 try:
     from hyrule_env import GROQ_KEYS, OPENROUTER_KEYS as _OR_KEYS_ENV
@@ -264,11 +265,11 @@ TOOLS_DEFINICAO = [
         "type": "function",
         "function": {
             "name": "executar_comando",
-            "description": "Executa um comando PowerShell no PC e retorna o output. Use para qualquer tarefa no sistema operacional: verificar IPs, mover arquivos, instalar, etc.",
+            "description": "Executa um comando Linux/bash no PC e retorna o output. Use para qualquer tarefa no sistema operacional: verificar IPs, mover arquivos, instalar, etc.",
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "cmd":     {"type": "string",  "description": "Comando PowerShell a executar"},
+                    "cmd":     {"type": "string",  "description": "Comando Linux/bash a executar"},
                     "timeout": {"type": "integer", "description": "Timeout em segundos (default 15, max 60)"},
                 },
                 "required": ["cmd"],
@@ -570,9 +571,11 @@ def _normalizar(texto: str) -> str:
     )
 
 
-def _selecionar_tools(pedido: str) -> list:
+def _selecionar_tools(pedido: str, usar_todas: bool | None = None) -> list:
     """Seleciona tools para o executor local."""
-    if OLLAMA_ALL_TOOLS:
+    if usar_todas is None:
+        usar_todas = OLLAMA_ALL_TOOLS
+    if usar_todas:
         log(f"QWEN tools selecionadas: TODAS ({len(TOOLS_DEFINICAO)})")
         return TOOLS_DEFINICAO
 
@@ -580,7 +583,7 @@ def _selecionar_tools(pedido: str) -> list:
     p = _normalizar(pedido)
 
     _busca_img = (
-        any(x in p for x in ["busca", "pesquis", "procur", "acha", "encontra", "web", "internet"]) and
+        any(x in p for x in ["busca", "pesquis", "procur", "acha", "encontra", "pega", "manda", "envia", "baixa", "download", "web", "internet"]) and
         any(x in p for x in ["imagem", "foto", "png", "jpg", "figura", "ilustracao", "artwork", "arte", "icon"])
     )
     if _busca_img:
@@ -635,11 +638,16 @@ def _gerar_hint_sequencia(pedido: str, tools: list) -> str:
     return ""
 
 
-def executar_qwen_react(pedido: str, usuario: str) -> str | None:
+def executar_qwen_react(
+    pedido: str,
+    usuario: str,
+    usar_todas_tools: bool | None = None,
+    max_rodadas: int = 5,
+) -> str | None:
     """Loop ReAct: qwen age → vê resultado → age de novo. Até 5 rodadas.
     Usa todas as tools quando OLLAMA_ALL_TOOLS estiver ativo.
     """
-    tools_filtradas = _selecionar_tools(pedido)
+    tools_filtradas = _selecionar_tools(pedido, usar_todas=usar_todas_tools)
     nomes_tools = [t["function"]["name"] for t in tools_filtradas]
     tool_hint = _gerar_hint_sequencia(pedido, tools_filtradas)
 
@@ -670,7 +678,7 @@ def executar_qwen_react(pedido: str, usuario: str) -> str | None:
         {"role": "user",   "content": pedido},
     ]
     executou_alguma_tool = False
-    for rodada in range(5):
+    for rodada in range(max_rodadas):
         content, tool_calls = _ollama_react(historico, tools_filtradas)
         if not tool_calls:
             if executou_alguma_tool:
@@ -695,7 +703,7 @@ def executar_qwen_react(pedido: str, usuario: str) -> str | None:
             if fn_name in {"enviar_arquivo_local", "enviar_mensagem"} and "Erro" not in resultado:
                 log(f"QWEN ação terminal concluída: {fn_name}")
                 return resultado
-    log("QWEN ReAct esgotou 5 rodadas")
+    log(f"QWEN ReAct esgotou {max_rodadas} rodadas")
     return None
 
 
@@ -1177,6 +1185,12 @@ def executar_pedido(pedido: str, usuario: str = "OWNER") -> str | None:
             except Exception as e:
                 return f"Não consegui baixar o arquivo — tenta mandar de novo."
 
+    # URL explicita pedindo envio/download — entrega como anexo no Discord.
+    if "http" in p and any(x in pn for x in ["manda", "envia", "enviar", "baixa", "baixar", "download", "anexo", "arquivo"]):
+        enviado = baixar_url_e_enviar(pedido, usuario)
+        if enviado:
+            return enviado
+
     # ── Padrão C: enviar arquivo do PC para o Discord ────────────────────────
     # Detecta caminho absoluto no pedido: "enviar arquivo C:\...\arquivo.ext para OWNER"
     _caminho_match = _re.search(r'(?:enviar?\s+arquivo\s+)([A-Za-z]:[^\s]+(?:\s[^\s]+)*?)(?:\s+para|\s+no\s+discord|$)', pedido, _re.IGNORECASE)
@@ -1433,25 +1447,11 @@ def executar_pedido(pedido: str, usuario: str = "OWNER") -> str | None:
         apps = sorted(set(n.split("/")[-1] for n in nomes if any(f in n.lower() for f in filtro)))
         return "Processos ativos:\n" + ", ".join(apps) if apps else "Nenhum processo relevante."
 
-    # Busca de imagem na web — entrega direto sem LLM
-    _quer_imagem = any(x in p for x in ["imagem", "foto", "png", "jpg", "figura", "artwork", "arte", "ilustra"])
-    _quer_web    = any(x in p for x in ["busca", "pesquis", "procura", "acha", "web", "internet", "online"])
-    if _quer_imagem and _quer_web:
-        # extrai o termo: tudo depois de "de " / "do " / "da " no pedido
-        m = _re.search(r'(?:de|do|da|por|sobre)\s+(.+)$', pedido, _re.IGNORECASE)
-        termo_img = m.group(1).strip().strip('"') if m else pedido
-        url_img = buscar_imagem(termo_img)
-        if url_img.startswith("http"):
-            filename = _normalizar(termo_img).replace(" ", "_") + ".png"
-            dl = chamar_api_local("/download", {"url": url_img, "filename": filename})
-            if dl and dl.get("ok"):
-                caminho = dl["path"]
-                send = chamar_api_local("/send-file", {"to": usuario, "file": caminho.replace("\\", "/"), "msg": termo_img})
-                if send and send.get("ok"):
-                    return f"Imagem de '{termo_img}' enviada!"
-                return f"Baixei a imagem mas erro ao enviar: {send}"
-            return f"Erro ao baixar imagem: {dl}"
-        return url_img  # mensagem de erro do buscar_imagem
+    # Busca de imagem — no Discord sempre baixa e envia arquivo, nunca só link.
+    _quer_imagem = any(x in pn for x in ["imagem", "foto", "png", "jpg", "jpeg", "figura", "artwork", "arte", "ilustra"])
+    _acao_imagem = any(x in pn for x in ["busca", "pesquis", "procura", "acha", "encontra", "pega", "manda", "envia", "baixa", "download", "web", "internet", "online"])
+    if _quer_imagem and _acao_imagem:
+        return baixar_imagem_e_enviar(pedido, usuario)
 
     # Ler arquivo
     if any(x in p for x in ["ler", "arquivo", "conteudo", "conteúdo", "trazer", "senha", "credencial"]):
@@ -1573,6 +1573,28 @@ def buscar_internet(query: str) -> str:
             return answer[:400]
         if related:
             return "\n".join(related)[:400]
+    except Exception as e:
+        log(f"DuckDuckGo instant falhou: {e}")
+
+    try:
+        import html
+        import re as _re
+
+        url = f"https://html.duckduckgo.com/html/?q={urllib.request.quote(query)}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=10) as r:
+            page = r.read().decode("utf-8", errors="replace")
+        results = []
+        for m in _re.finditer(r'<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', page, _re.I | _re.S):
+            href = html.unescape(m.group(1))
+            title = _re.sub(r"<.*?>", "", m.group(2))
+            title = html.unescape(title).strip()
+            if title:
+                results.append(f"{title} - {href}")
+            if len(results) >= 3:
+                break
+        if results:
+            return "\n".join(results)[:800]
         return f"Sem resultado direto para '{query}'. Tente reformular."
     except Exception as e:
         return f"Erro na busca: {e}"
@@ -1585,9 +1607,30 @@ def buscar_imagem(termo: str, wiki: str = "zelda") -> str:
     3. Wikimedia Commons generator=search namespace=6 — fallback genérico
     Retorna URL direta ou mensagem de erro.
     """
+    termo_original = termo
+    termo_busca = _canonicalizar_consulta_imagem(termo)
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
+    termo = termo_busca
     slug    = termo.lower().replace(" ", "_")
     title   = termo.replace(" ", "_").title()
+    candidatos: list[dict] = []
+
+    def _add(url: str, source: str = "", name: str = ""):
+        if not url or not url.startswith("http"):
+            return
+        if any(item["url"] == url for item in candidatos):
+            return
+        if not name:
+            name = urllib.request.unquote(url.split("/")[-3] if "/revision/" in url else url.rsplit("/", 1)[-1])
+        candidatos.append({"url": url, "source": source, "name": name})
+
+    def _escolher(origem: str) -> str | None:
+        if not candidatos:
+            return None
+        idx = _rankear_candidato_imagem(termo_original, candidatos)
+        item = candidatos[idx]
+        log(f"buscar_imagem: {origem} OK [{idx + 1}/{len(candidatos)}] {item['name']} → {item['url']}")
+        return item["url"]
 
     # 1. Hyrule Compendium (BOTW/TOTK) — endpoint JSON retorna data.image
     try:
@@ -1597,8 +1640,7 @@ def buscar_imagem(termo: str, wiki: str = "zelda") -> str:
             data = json.loads(r.read())
         img = data.get("data", {}).get("image", "")
         if img and data.get("status") != 404:
-            log(f"buscar_imagem: Compendium OK → {img}")
-            return img
+            _add(img, "compendium", slug)
     except Exception as e:
         log(f"buscar_imagem: Compendium falhou → {e}")
 
@@ -1617,8 +1659,7 @@ def buscar_imagem(termo: str, wiki: str = "zelda") -> str:
             for page in pages.values():
                 src = page.get("original", {}).get("source", "")
                 if src:
-                    log(f"buscar_imagem: Fandom pageimages OK → {src}")
-                    return src
+                    _add(src, "fandom_page", page.get("title", title))
         except Exception as e:
             log(f"buscar_imagem: Fandom pageimages falhou → {e}")
 
@@ -1639,10 +1680,36 @@ def buscar_imagem(termo: str, wiki: str = "zelda") -> str:
                     continue
                 url = img.get("url", "")
                 if url:
-                    log(f"buscar_imagem: Fandom allimages OK → {url}")
-                    return url
+                    _add(url, "fandom_allimages", img.get("name", ""))
         except Exception as e:
             log(f"buscar_imagem: Fandom allimages falhou → {e}")
+
+        # 2c. Fandom file search — usa a intenção refinada, melhor para retratos/renders/artworks.
+        try:
+            termos_search = [termo_original, termo]
+            low_original = termo_original.lower()
+            if any(x in low_original for x in ["portrait", "retrato", "render", "artwork", "character", "personagem"]):
+                termos_search.extend([f"{termo} render", f"{termo} artwork"])
+            vistos_search = set()
+            for busca in termos_search:
+                busca = " ".join(str(busca or "").split())
+                if not busca or busca.lower() in vistos_search:
+                    continue
+                vistos_search.add(busca.lower())
+                api = (
+                    f"https://zelda.fandom.com/api.php?action=query"
+                    f"&generator=search&gsrsearch={urllib.request.quote(busca)}&gsrnamespace=6"
+                    f"&prop=imageinfo&iiprop=url&gsrlimit=10&format=json"
+                )
+                req = urllib.request.Request(api, headers=headers)
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    data = json.loads(r.read())
+                for page in data.get("query", {}).get("pages", {}).values():
+                    title_img = str(page.get("title", "")).replace("File:", "")
+                    for info in page.get("imageinfo", []):
+                        _add(info.get("url", ""), "fandom_search", title_img)
+        except Exception as e:
+            log(f"buscar_imagem: Fandom search falhou → {e}")
 
     # 3. Wikimedia Commons — generator=search namespace=6 (arquivos/imagens)
     try:
@@ -1660,12 +1727,190 @@ def buscar_imagem(termo: str, wiki: str = "zelda") -> str:
             for info in page.get("imageinfo", []):
                 url = info.get("url", "")
                 if url and any(url.lower().endswith(x) for x in _img_ext):
-                    log(f"buscar_imagem: Commons OK → {url}")
-                    return url
+                    _add(url, "commons", page.get("title", ""))
     except Exception as e:
         log(f"buscar_imagem: Commons falhou → {e}")
 
-    return f"Nenhuma imagem encontrada para '{termo}'."
+    escolhido = _escolher("candidatos")
+    if escolhido:
+        return escolhido
+
+    # Termos semânticos de IA como "portrait"/"foto" ajudam a entender intenção,
+    # mas algumas fontes Zelda indexam só pelo nome do personagem/objeto.
+    import re as _re
+    termo_base = _re.sub(r"(?i)\b(portrait|retrato|foto|photo|imagem|image)\b", " ", termo)
+    termo_base = " ".join(termo_base.split())
+    if termo_base and termo_base.lower() != termo.lower():
+        return buscar_imagem(termo_base, wiki)
+
+    return f"Nenhuma imagem encontrada para '{termo_original}'."
+
+
+def _canonicalizar_consulta_imagem(termo: str) -> str:
+    """Transforma intenção refinada em consulta compatível com a fonte, sem perder o alvo."""
+    import re as _re
+
+    t = " ".join(str(termo or "").split())
+    low = t.lower()
+
+    # Caso genérico de entidade + intenção visual: remove só descritores de formato.
+    t = _re.sub(r"(?i)\b(portrait|retrato|foto|photo|imagem|image|render|artwork)\b", " ", t)
+    t = " ".join(t.split())
+
+    # Entidade Link, personagem, não a franquia nem a princesa Zelda.
+    if "link" in low and any(x in low for x in ["character", "personagem", "zelda", "hyrule"]):
+        return "Link"
+
+    return t or termo
+
+
+def _rankear_candidato_imagem(alvo: str, candidatos: list[dict]) -> int:
+    """Escolhe o melhor candidato para a intenção visual usando IA; fallback varia entre bons resultados."""
+    if len(candidatos) == 1:
+        return 0
+
+    linhas = "\n".join(
+        f"{i}: source={item.get('source')} name={item.get('name')}"
+        for i, item in enumerate(candidatos[:12])
+    )
+    system = (
+        "Voce escolhe o melhor arquivo de imagem para a intencao visual do usuario.\n"
+        "Priorize entidade correta, imagem clara, retrato/render quando pedido, e evite resultados ambiguos.\n"
+        "Evite capa de jogo, mapa, item, icone, logo, sprite, múltiplos personagens ou personagem errado, "
+        "a menos que o usuario tenha pedido isso.\n"
+        "Responda somente JSON valido com melhores candidatos em ordem: {\"indexes\":[0,2,3]}."
+    )
+    raw = chamar_llm(system, f"Intencao: {alvo}\nCandidatos:\n{linhas}", max_tokens=40)
+    order: list[int] = []
+    if raw:
+        try:
+            import re as _re
+            data = json.loads((_re.search(r"\{.*\}", raw, _re.S) or [raw])[0])
+            raw_indexes = data.get("indexes")
+            if isinstance(raw_indexes, list):
+                order = [int(x) for x in raw_indexes if 0 <= int(x) < min(len(candidatos), 12)]
+            elif "index" in data:
+                idx = int(data.get("index"))
+                if 0 <= idx < min(len(candidatos), 12):
+                    order = [idx]
+        except Exception:
+            pass
+
+    ruins = ("boxart", "logo", "icon", "map", "sprite", "button", "arrow", "bundle", "cover")
+    alvo_low = alvo.lower()
+    if "link" in alvo_low and any(x in alvo_low for x in ["character", "personagem", "portrait", "retrato", "render", "artwork", "zelda"]):
+        ruins = (*ruins, "zelda_link", "link_zelda", "princess_zelda", "and_zelda")
+    bons = [
+        i for i, item in enumerate(candidatos)
+        if not any(x in item.get("name", "").lower() for x in ruins)
+    ]
+    pool = []
+    for idx in [*order, *bons, *range(len(candidatos))]:
+        if idx not in pool:
+            pool.append(idx)
+
+    key = _normalizar(alvo)
+    recentes = _recent_image_urls.get(key, [])
+    for idx in pool:
+        if candidatos[idx]["url"] not in recentes:
+            escolhido = idx
+            break
+    else:
+        escolhido = pool[time.time_ns() % len(pool)]
+
+    url = candidatos[escolhido]["url"]
+    historico = [url, *[x for x in recentes if x != url]][:5]
+    _recent_image_urls[key] = historico
+    return escolhido
+
+
+def _extrair_termo_imagem(pedido: str) -> str:
+    import re as _re
+
+    system = (
+        "Voce extrai a consulta ideal para buscar uma imagem na web.\n"
+        "Contexto: quem responde e Link, heroi de Zelda/Hyrule.\n"
+        "Resolva pronomes pelo contexto: 'sua foto', 'foto de voce', "
+        "'foto dele' quando se referir ao bot/personagem = Link, personagem de The Legend of Zelda.\n"
+        "Refine qualquer pesquisa para entidade + intenção visual + qualificadores importantes.\n"
+        "Para retrato/foto do Link, use: Link character portrait.\n"
+        "Inclua negativos semânticos só quando necessário no próprio query, ex: 'single character', 'not logo'.\n"
+        "Para objetos, use o nome do objeto sem comandos extras.\n"
+        "Nao inclua palavras como buscar, mandar, enviar, web, internet, google.\n"
+        "Responda somente JSON valido: {\"query\":\"...\"}."
+    )
+    raw = chamar_llm(system, pedido, max_tokens=60)
+    if raw:
+        try:
+            m_json = _re.search(r"\{.*\}", raw, _re.S)
+            data = json.loads(m_json.group(0) if m_json else raw)
+            query = str(data.get("query") or "").strip()
+            if query:
+                return query[:120]
+        except Exception:
+            pass
+
+    m = _re.search(r'(?:de|do|da|por|sobre)\s+(.+)$', pedido, _re.IGNORECASE)
+    termo = m.group(1) if m else pedido
+    termo = _re.sub(r'(?i)\s+e\s+(?:me\s+)?(?:manda|envia|enviar|mande|envie)\b.*$', ' ', termo)
+    termo = _re.sub(r'(?i)\s+(?:para|pra)\s+[\w_.-]+\s*$', ' ', termo)
+    termo = _re.sub(
+        r'(?i)\b(busca|buscar|pesquisa|pesquisar|procura|procurar|acha|achar|encontra|encontrar|pega|manda|envia|enviar|baixa|download|uma|um|a|o|na|no|pela|pelo|imagem|foto|figura|artwork|arte|png|jpg|jpeg|web|internet|online|google)\b',
+        ' ',
+        termo,
+    )
+    termo = " ".join(termo.strip().strip('"').split())
+    if not termo or termo.lower() in {"sua", "seu", "voce", "você", "tu", "vc", "link", "dele"}:
+        return "Link character portrait"
+    return termo
+
+
+def baixar_imagem_e_enviar(pedido: str, usuario: str = "OWNER") -> str:
+    """Busca imagem, baixa pelo bot Discord e envia como arquivo em vez de URL."""
+    termo_img = _extrair_termo_imagem(pedido)
+    url_img = buscar_imagem(termo_img)
+    if not url_img.startswith("http"):
+        return url_img
+
+    filename = _normalizar(termo_img).replace(" ", "_") + ".png"
+    dl = chamar_api_local("/download", {"url": url_img, "filename": filename})
+    if not dl or not dl.get("ok"):
+        return f"Erro ao baixar imagem: {dl}"
+
+    caminho = dl["path"]
+    send = chamar_api_local("/send-file", {
+        "to": usuario,
+        "file": caminho.replace("\\", "/"),
+        "msg": termo_img,
+        "delete_after": True,
+    })
+    if send and send.get("ok"):
+        return f"Imagem de '{termo_img}' enviada!"
+    return f"Baixei a imagem mas erro ao enviar: {send}"
+
+
+def baixar_url_e_enviar(pedido: str, usuario: str = "OWNER") -> str | None:
+    """Baixa uma URL explicita e envia como anexo pelo Discord."""
+    import re as _re
+
+    m = _re.search(r'https?://\S+', pedido)
+    if not m:
+        return None
+    url = m.group(0).rstrip(').,;]')
+    filename = url.split("/")[-1].split("?")[0] or "arquivo"
+    if "." not in filename:
+        filename = "arquivo_download"
+
+    dl = chamar_api_local("/download", {"url": url, "filename": filename})
+    if not dl or not dl.get("ok"):
+        return f"Erro ao baixar arquivo: {dl}"
+
+    caminho = dl.get("path", "")
+    send = chamar_api_local("/send-file", {"to": usuario, "file": caminho, "msg": filename})
+    if send and send.get("ok"):
+        tamanho = dl.get("tamanho_mb", "?")
+        return f"Arquivo '{filename}' ({tamanho}MB) enviado!"
+    return f"Baixei o arquivo mas erro ao enviar: {send}"
 
 
 def executar_tool(nome: str, args: dict) -> str:
@@ -1783,6 +2028,9 @@ def executar_tool(nome: str, args: dict) -> str:
                     env={**os.environ, "PYTHONIOENCODING": "utf-8"},
                 )
             else:
+                _powershell_cmds = ["Get-Date", "Get-Process", "Get-ChildItem", "Write-Host", "Out-File", "Select-Object"]
+                if any(p in cmd for p in _powershell_cmds):
+                    return f"Erro: comando PowerShell detectado ('{cmd[:40]}...'). Use Linux/bash."
                 r = subprocess.run(
                     ["bash", "-c", cmd],
                     capture_output=True, timeout=timeout,

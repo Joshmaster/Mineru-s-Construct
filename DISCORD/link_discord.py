@@ -29,7 +29,7 @@ except ImportError:
     GROQ_KEYS = []
 
 OLLAMA_URL   = "http://localhost:11434/api/chat"
-OLLAMA_MODEL = "qwen3.5:9b"
+OLLAMA_MODEL = "qwen3:8b"
 MODELOS_FALLBACK = [
     {"url": "https://openrouter.ai/api/v1/chat/completions",   "model": "google/gemma-4-31b-it:free",               "keys": OPENROUTER_KEYS},
     {"url": "https://api.groq.com/openai/v1/chat/completions", "model": "meta-llama/llama-4-scout-17b-16e-instruct","keys": GROQ_KEYS},
@@ -405,6 +405,56 @@ async def responder_com_ia_local(autor: str, mensagem: str, think: bool = False)
 
     return "não consegui falar com o local agora"
 
+
+async def responder_com_ia_local_tools(autor: str, mensagem: str) -> str:
+    """Usa o executor local com tools para o !zpensa; cai no chat local se nada resolver."""
+    loop = asyncio.get_running_loop()
+
+    def _run_tools():
+        import bot_supervisor as supervisor
+
+        p = supervisor._normalizar(mensagem)
+        quer_web = any(x in p for x in ["busca", "pesquis", "internet", "google", "procur", "duckduck", "web"])
+        quer_img = any(x in p for x in ["imagem", "foto", "png", "jpg", "jpeg", "figura", "ilustracao", "artwork", "arte"])
+        acao_img = any(x in p for x in ["busca", "pesquis", "procur", "acha", "encontra", "pega", "manda", "envia", "baixa", "download", "web", "internet"])
+        quer_arquivo_url = "http" in p and any(x in p for x in ["manda", "envia", "enviar", "baixa", "baixar", "download", "anexo", "arquivo"])
+        if quer_arquivo_url:
+            enviado = supervisor.baixar_url_e_enviar(mensagem, autor)
+            if enviado:
+                return enviado
+
+        if quer_img and acao_img:
+            return supervisor.baixar_imagem_e_enviar(mensagem, autor)
+
+        if quer_web and not quer_img:
+            query = re.sub(r"(?i)^.*?(?:busca|pesquisa|procura|google|web|internet)\s+(?:na\s+internet\s+|no\s+google\s+|por\s+)?", "", mensagem).strip()
+            return supervisor.buscar_internet(query or mensagem)
+
+        direto = supervisor.executar_pedido(mensagem, autor)
+        if direto:
+            return direto
+
+        if supervisor.ollama_disponivel():
+            return supervisor.executar_qwen_react(
+                mensagem, autor, usar_todas_tools=False, max_rodadas=3
+            )
+        return None
+
+    try:
+        resposta = await loop.run_in_executor(None, _run_tools)
+        if resposta:
+            if autor not in historico_ia:
+                historico_ia[autor] = carregar_historico(autor)
+            historico_ia[autor].append({"role": "user", "content": f"[Mensagem de {_nome_display(autor)}]: {mensagem}"})
+            historico_ia[autor].append({"role": "assistant", "content": resposta})
+            historico_ia[autor] = historico_ia[autor][-20:]
+            salvar_historico(autor, historico_ia[autor])
+            return resposta
+    except Exception as e:
+        print(f"[IA] qwen local tools !zpensa falhou: {e}", flush=True)
+
+    return await responder_com_ia_local(autor, mensagem, think=True)
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.dm_messages = True
@@ -581,7 +631,7 @@ async def on_message(message):
             registrar("OUT", "Link", autor, "manda o texto depois do !zpensa")
             return
         async with message.channel.typing():
-            resposta_z = await responder_com_ia_local(autor, pedido_z, think=True)
+            resposta_z = await responder_com_ia_local_tools(autor, pedido_z)
         resposta_z = sanitizar(resposta_z)
         if resposta_z:
             await message.channel.send(resposta_z)
@@ -600,6 +650,21 @@ async def on_message(message):
         if resposta_z:
             await message.channel.send(resposta_z)
             registrar("OUT", "Link", autor, resposta_z)
+        return
+
+    # Pedido natural de imagem/foto: baixa e envia arquivo direto, sem depender da IA.
+    _quer_imagem = any(x in _txt_norm for x in ["imagem", "foto", "png", "jpg", "jpeg", "figura", "ilustracao", "artwork", "arte"])
+    _acao_imagem = any(x in _txt_norm for x in ["busca", "pesquis", "procur", "acha", "encontra", "pega", "manda", "envia", "baixa", "download", "web", "internet", "google"])
+    if _quer_imagem and _acao_imagem:
+        async with message.channel.typing():
+            import bot_supervisor as supervisor
+            resposta_img = await asyncio.get_running_loop().run_in_executor(
+                None, supervisor.baixar_imagem_e_enviar, _txt, autor
+            )
+        resposta_img = sanitizar(resposta_img)
+        if resposta_img:
+            await message.channel.send(resposta_img)
+            registrar("OUT", "Link", autor, resposta_img)
         return
 
     if re.match(r'^triforce\b', _txt_norm):
@@ -795,6 +860,7 @@ async def rota_send_file(request):
         nome     = data.get("to", "").strip()
         filepath = data.get("file", "").strip()
         msg      = data.get("msg", "")
+        delete_after = bool(data.get("delete_after"))
 
         user = await buscar_user(nome)
         if not user:
@@ -816,6 +882,12 @@ async def rota_send_file(request):
 
         nome_arquivo = os.path.basename(filepath)
         registrar("OUT", "Link", user.name, f"[ARQUIVO: {nome_arquivo}] {msg}".strip())
+        if delete_after:
+            try:
+                os.remove(filepath)
+                print(f"[DELETE_AFTER_SEND] {filepath}", flush=True)
+            except FileNotFoundError:
+                pass
         return web.json_response({"ok": True, "arquivo": nome_arquivo})
     except Exception as e:
         return web.json_response({"ok": False, "error": str(e)}, status=500)

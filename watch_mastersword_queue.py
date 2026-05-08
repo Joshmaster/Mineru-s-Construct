@@ -28,8 +28,7 @@ TIMEOUT_SECS = 240
 DEFAULT_MODELS = [
     "openrouter/openai/gpt-oss-20b:free",
     "openrouter/google/gemma-4-31b-it:free",
-    "openrouter/nvidia/nemotron-3-super-120b-a12b:free",
-    "ollama/qwen2.5:7b",
+    "groq/meta-llama/llama-4-scout-17b-16e-instruct",
 ]
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 

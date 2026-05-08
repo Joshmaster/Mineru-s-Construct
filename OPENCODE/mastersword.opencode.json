@@ -69,8 +69,8 @@
       "api": "http://localhost:11434/v1",
       "npm": "@ai-sdk/openai-compatible",
       "models": {
-        "qwen2.5:7b": {
-          "name": "Qwen 2.5 7B (local)"
+        "qwen3:8b": {
+          "name": "Qwen3 8B (local)"
         }
       }
     }

@@ -1,19 +1,11 @@
-"""Skill: comandos de admin — só o dono pode usar.
-
-O dono é definido diretamente no config.json (campo OWNER).
-Não existe auto-registro — só quem já está no config é dono.
-
-!acesso add [id]   → adiciona número/LID à allow_list
-!acesso del [id]   → remove número/LID da allow_list
-!acesso lista      → mostra quem tem acesso
-!dono              → confirma se você é o dono
-"""
+"""Skill: comandos de admin — só OWNER/OWNER_IDS podem usar."""
 
 import json
 import re
 from pathlib import Path
 from bot.core.router import Skill
 from bot.core.context import MessageContext
+from bot.core import access as access_ctl
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.json"
 
@@ -29,14 +21,13 @@ def _save_config(cfg: dict):
 
 
 def _sender_id(ctx: MessageContext) -> str:
-    return str(getattr(ctx.sender_jid, "User", "")) or str(ctx.sender_jid)
+    return access_ctl.jid_user(ctx.sender_jid)
 
 
 def _is_owner(ctx: MessageContext) -> bool:
     try:
         cfg = _load_config()
-        owner = cfg.get("OWNER", "")
-        return bool(owner) and _sender_id(ctx) == str(owner)
+        return access_ctl.is_admin(ctx.sender_jid, ctx.chat_jid, _sender_id(ctx), cfg=cfg)
     except Exception:
         return False
 
@@ -60,13 +51,65 @@ async def handle_acesso(ctx: MessageContext):
         await ctx.reply(f"📋 *Com acesso:*\n{lines}")
         return
 
+    if args.startswith("pend"):
+        pend = access_ctl.load_pending()
+        if not pend:
+            await ctx.reply("sem pedido pendente")
+            return
+        lines = []
+        for key, item in pend.items():
+            status = "aguardando código do dono" if item.get("step") == "admin_code" else (
+                "aguardando usuário repetir código" if item.get("code") else "sem código"
+            )
+            lines.append(
+                f"• {status} - {item.get('name') or '(sem nome)'}\n"
+                f"  físico/chat: `{item.get('phone') or '?'}`\n"
+                f"  id recebido: `{item.get('sender_id') or key}`"
+            )
+        await ctx.reply("🔐 *Pendentes:*\n" + "\n".join(lines))
+        return
+
+    m_code = re.match(r"c[oó]digo\s+(\S+)\s+(\S+)", args)
+    if m_code:
+        key, item = access_ctl.find_pending_by_code_or_id(m_code.group(1))
+        if not item:
+            await ctx.reply("não achei esse pedido pendente")
+            return
+        access_ctl.upsert_pending(key, code=m_code.group(2), step="user_code")
+        await ctx.reply(f"código salvo para {item.get('name') or key}")
+        return
+
+    m_ap = re.match(r"(aprova|aprovar|libera|liberar)\s+(\S+)", args)
+    if m_ap:
+        key, item = access_ctl.find_pending_by_code_or_id(m_ap.group(2))
+        if not item:
+            await ctx.reply("não achei esse pedido pendente")
+            return
+        added = access_ctl.add_allowed(item.get("sender_id"), item.get("phone"), item.get("chat_id"))
+        access_ctl.pop_pending(key)
+        await ctx.reply(f"liberado: {item.get('name') or key}\nadd: {', '.join(added) or 'já estava'}")
+        return
+
+    m_rec = re.match(r"(recusa|recusar|nega|negar)\s+(\S+)", args)
+    if m_rec:
+        key, item = access_ctl.find_pending_by_code_or_id(m_rec.group(2))
+        if not item:
+            await ctx.reply("não achei esse pedido pendente")
+            return
+        access_ctl.pop_pending(key)
+        await ctx.reply(f"recusado: {item.get('name') or key}")
+        return
+
     m = re.match(r"(add|del)\s+(\S+)", args)
     if not m:
         await ctx.reply(
             "Uso:\n"
             "`!acesso add [número/ID]`\n"
             "`!acesso del [número/ID]`\n"
-            "`!acesso lista`"
+            "`!acesso lista`\n"
+            "`!acesso pendentes`\n"
+            "`!acesso codigo [ID] [codigo]`\n"
+            "`!acesso aprovar [código/ID]`"
         )
         return
 
@@ -74,19 +117,11 @@ async def handle_acesso(ctx: MessageContext):
     target_norm = "".join(c for c in target if c.isdigit()) or target
 
     if action == "add":
-        if target_norm not in allow:
-            allow.append(target_norm)
-            cfg["ALLOW_FROM"] = allow
-            _save_config(cfg)
-            await ctx.reply(f"✅ `{target_norm}` adicionado.")
-        else:
-            await ctx.reply(f"Já tá na lista: `{target_norm}`")
+        added = access_ctl.add_allowed(target_norm)
+        await ctx.reply(f"✅ `{target_norm}` adicionado." if added else f"Já tá na lista: `{target_norm}`")
 
     elif action == "del":
-        if target_norm in allow:
-            allow.remove(target_norm)
-            cfg["ALLOW_FROM"] = allow
-            _save_config(cfg)
+        if access_ctl.remove_allowed(target_norm):
             await ctx.reply(f"🗑️ `{target_norm}` removido.")
         else:
             await ctx.reply(f"Não achei `{target_norm}` na lista.")

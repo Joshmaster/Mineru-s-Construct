@@ -24,11 +24,12 @@ Todos os agentes ficam em `~/Agents/`.
 - **Watchdog embutido**: verifica o bot a cada 30s e reinicia automaticamente se cair
 - **Fluxo de resolução (ordem de prioridade):**
   1. `executar_pedido()` — Python puro, zero tokens (padrões hardcoded + navegação de pastas)
-  2. `executar_qwen_react()` — qwen3.5:9b ReAct loop (até 5 rodadas, todas as tools)
+  2. `executar_qwen_react()` — qwen3:8b ReAct loop (até 5 rodadas, todas as tools)
   3. `chamar_agente_tools()` — OpenRouter (gpt-oss-20b → gpt-oss-120b → nemotron → trinity → llama → gemma)
   4. `chamar_groq_tools()` — Groq 0.3s
   5. `enfileirar_para_claude()` — TRIFORCE como último recurso
-- **Qwen tools:** `_selecionar_tools()` retorna todas as tools quando `OLLAMA_ALL_TOOLS=True` (qwen3.5:9b)
+- **Qwen tools:** `_selecionar_tools()` retorna todas as tools quando `OLLAMA_ALL_TOOLS=True` (qwen3:8b)
+- **`!zpensa` com tools:** Discord usa `responder_com_ia_local_tools()`; WhatsApp usa `chat_local_tools()` e atalho proprio para imagem. Busca web simples chama `buscar_internet()` direto; imagens/URLs de arquivo no Discord sempre passam por `/download` + `/send-file`, nao por link; ReAct de `!zpensa` usa tools filtradas por intent (`usar_todas_tools=False`, max 3 rodadas) para reduzir latencia.
 - **Deduplicação:** `pedidos_vistos` dict com chave `timestamp|pedido`, TTL 10 min — evita reprocessar mesmo evento, permite retry após TTL
 - **TRIFORCE-PEDIDO:** também tem dedup por timestamp
 
@@ -73,7 +74,7 @@ Todos os agentes ficam em `~/Agents/`.
 - Config versionada: `OPENCODE/mastersword.opencode.json`
 - Persona/config: `OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md` + `OPENCODE/roaming/LINK_PERSONA.md`
 - Retomada: `opencode link` e `mastersword link` seguem a mesma rotina de `link link`/`codex link`
-- Modelos padrão: OpenRouter free → Ollama local (`qwen3.5:9b`); Groq fica configurado para uso user2al
+- Modelos padrão: OpenRouter free → Ollama local (`qwen3:8b`); Groq fica configurado para uso user2al
 - Responde no canal do item: Discord (`localhost:7331`) ou WhatsApp (`localhost:7332`)
 - Usa `.mastersword_processing.lock`; stale após 15 min ou se o PID morreu
 
@@ -108,7 +109,7 @@ Todos os agentes ficam em `~/Agents/`.
 - Headers obrigatórios para não ser bloqueado pelo Cloudflare
 
 ### Ollama local
-- `qwen3.5:9b` — executor principal de tools no supervisor
+- `qwen3:8b` — executor principal de tools no supervisor
 - `qwen2.5:7b` removido
 - `OLLAMA_ALL_TOOLS=True`: qwen recebe o conjunto completo de 17 tools
 - Swap local ampliado para `/swap.img` 10G para dar margem ao modelo

@@ -6,6 +6,7 @@ local_secrets/
 
 # ── Sessoes WhatsApp ──────────────────────────────────────────────────────────
 link-bot/.linkbot/
+.linkbot/
 link-bot/.linkbot/session.sqlite
 link-bot/.linkbot/test*.sqlite
 link-bot/.linkbot/data.db
@@ -93,6 +94,7 @@ CLAUDE CODE/ollama_fallback.py
 link-bot/config/config.json
 DISCORD/usuarios_extra.json
 DISCORD/files/foto_*.jpg
+DISCORD/files/link_*
 DISCORD/files/comida.jpg
 DISCORD/files/teste.json
 
