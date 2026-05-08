@@ -483,8 +483,7 @@ def chat_local_tools(user_id: str, user_message: str, usuario: str = "OWNER") ->
         quer_web = any(x in p for x in ["busca", "pesquis", "internet", "google", "procur", "duckduck", "web"])
         quer_img = any(x in p for x in ["imagem", "foto", "png", "jpg", "figura", "ilustracao", "artwork", "arte"])
         if quer_web and not quer_img:
-            query = re.sub(r"(?i)^.*?(?:busca|pesquisa|procura|google|web|internet)\s+(?:na\s+internet\s+|no\s+google\s+|por\s+)?", "", user_message).strip()
-            raw_reply = supervisor.buscar_internet(query or user_message)
+            raw_reply = supervisor.buscar_internet(user_message)
             if raw_reply:
                 _add_to_history(user_id, "user", user_message)
                 _add_to_history(user_id, "assistant", raw_reply)

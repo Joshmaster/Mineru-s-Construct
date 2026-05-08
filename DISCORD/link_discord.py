@@ -427,8 +427,7 @@ async def responder_com_ia_local_tools(autor: str, mensagem: str) -> str:
             return supervisor.baixar_imagem_e_enviar(mensagem, autor)
 
         if quer_web and not quer_img:
-            query = re.sub(r"(?i)^.*?(?:busca|pesquisa|procura|google|web|internet)\s+(?:na\s+internet\s+|no\s+google\s+|por\s+)?", "", mensagem).strip()
-            return supervisor.buscar_internet(query or mensagem)
+            return supervisor.buscar_internet(mensagem)
 
         direto = supervisor.executar_pedido(mensagem, autor)
         if direto:

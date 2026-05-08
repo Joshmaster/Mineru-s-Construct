@@ -832,7 +832,7 @@ def chamar_ollama_simples(system: str, user: str) -> str | None:
     return None
 
 
-def chamar_llm(system: str, user: str, max_tokens: int = 400) -> str | None:
+def chamar_llm(system: str, user: str, max_tokens: int = 400, local_fallback: bool = True) -> str | None:
     for model in MODELOS:
         for key in OPENROUTER_KEYS:
             payload = json.dumps({
@@ -866,7 +866,7 @@ def chamar_llm(system: str, user: str, max_tokens: int = 400) -> str | None:
             except Exception:
                 continue
     # Fallback Ollama/Kimi
-    if ollama_disponivel():
+    if local_fallback and ollama_disponivel():
         log("OpenRouter esgotado — fallback Ollama/Kimi")
         return chamar_ollama_simples(system, user)
     return None
@@ -1557,47 +1557,182 @@ def enfileirar_para_mastersword(pedido: str, usuario: str, canal: str = "discord
     enviar(usuario, "🗡️ mastersword acionada — processando, aguarde...", canal)
 
 
-def buscar_internet(query: str) -> str:
-    """Busca no DuckDuckGo Instant Answer API (sem JS, sem rate limit agressivo)."""
-    try:
-        url = f"https://api.duckduckgo.com/?q={urllib.request.quote(query)}&format=json&no_html=1&skip_disambig=1"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            data = json.loads(r.read())
-        abstract = data.get("AbstractText", "").strip()
-        answer   = data.get("Answer", "").strip()
-        related  = [r["Text"] for r in data.get("RelatedTopics", [])[:3] if "Text" in r]
-        if abstract:
-            return abstract[:400]
-        if answer:
-            return answer[:400]
-        if related:
-            return "\n".join(related)[:400]
-    except Exception as e:
-        log(f"DuckDuckGo instant falhou: {e}")
+def _refinar_consulta_web(pedido: str) -> dict:
+    """Usa IA para transformar pedido em consulta web precisa. Fallback preserva o texto."""
+    system = (
+        "Voce refina pedidos de busca web.\n"
+        "Extraia a consulta ideal, idioma esperado, recencia e tipo de resposta.\n"
+        "Resolva pronomes e contexto quando estiver claro, remova comandos como buscar/pesquisar/google/web.\n"
+        "Se a pergunta pedir noticias, status atual, preço, clima, versão, agenda ou algo recente, marque recency='recent'.\n"
+        "Se pedir explicação geral, marque recency='stable'.\n"
+        "Responda somente JSON valido: "
+        "{\"query\":\"...\",\"intent\":\"answer|news|howto|compare|lookup\",\"recency\":\"recent|stable\",\"lang\":\"pt-BR\"}."
+    )
+    raw = chamar_llm(system, pedido, max_tokens=100, local_fallback=False)
+    if raw:
+        try:
+            import re as _re
+            data = json.loads((_re.search(r"\{.*\}", raw, _re.S) or [raw])[0])
+            query = str(data.get("query") or "").strip()
+            if query:
+                return {
+                    "query": query[:180],
+                    "intent": str(data.get("intent") or "answer")[:30],
+                    "recency": str(data.get("recency") or "stable")[:20],
+                    "lang": str(data.get("lang") or "pt-BR")[:20],
+                }
+        except Exception:
+            pass
+
+    import re as _re
+    query = _re.sub(
+        r"(?i)\b(busca|buscar|pesquisa|pesquisar|procura|procurar|google|web|internet|na|no|pela|pelo)\b",
+        " ",
+        pedido or "",
+    )
+    query = " ".join(query.strip().split()) or pedido
+    pedido_low = (pedido or "").lower()
+    recency = "recent" if any(
+        x in pedido_low
+        for x in [
+            "agora", "atual", "atuais", "recente", "recentes", "hoje", "noticia", "notícias",
+            "news", "status", "preço", "preco", "versão", "versao", "agenda", "lançamento", "lancamento",
+        ]
+    ) else "stable"
+    intent = "news" if any(x in pedido_low for x in ["noticia", "notícias", "news"]) else "answer"
+    return {"query": query[:180], "intent": intent, "recency": recency, "lang": "pt-BR"}
+
+
+def _coletar_resultados_web(query: str, recency: str = "stable") -> list[dict]:
+    """Coleta candidatos da web sem resumir ainda."""
+    results: list[dict] = []
+    seen = set()
+    import re as _re
+
+    key_terms = [
+        t.lower()
+        for t in _re.findall(r"[A-Za-zÀ-ÿ0-9][A-Za-zÀ-ÿ0-9._-]{2,}", query)
+        if t.lower() not in {
+            "sobre", "noticia", "noticias", "notícias", "recente", "recentes", "atual",
+            "atuais", "latest", "news", "versao", "versão", "status", "preco", "preço",
+        }
+    ][:5]
+
+    def add(title: str, url: str = "", snippet: str = "", source: str = ""):
+        title = " ".join(str(title or "").split())
+        snippet = " ".join(str(snippet or "").split())
+        url = str(url or "").strip()
+        key = (title.lower(), url)
+        if not title or key in seen:
+            return
+        seen.add(key)
+        results.append({"title": title, "url": url, "snippet": snippet, "source": source})
+
+    instant_queries = [query]
+    if recency == "recent" and key_terms:
+        instant_queries.append(" ".join(key_terms))
+
+    for instant_query in dict.fromkeys(instant_queries):
+        try:
+            url = f"https://api.duckduckgo.com/?q={urllib.request.quote(instant_query)}&format=json&no_html=1&skip_disambig=1"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                data = json.loads(r.read())
+            abstract = data.get("AbstractText", "").strip()
+            answer   = data.get("Answer", "").strip()
+            heading = data.get("Heading", "").strip()
+            if abstract:
+                add(heading or instant_query, data.get("AbstractURL", ""), abstract, "duckduckgo_instant")
+            if answer:
+                add(instant_query, "", answer, "duckduckgo_answer")
+            for item in data.get("RelatedTopics", [])[:8]:
+                if "Text" in item:
+                    add(item.get("FirstURL", "") or instant_query, item.get("FirstURL", ""), item.get("Text", ""), "duckduckgo_related")
+                for sub in item.get("Topics", [])[:4]:
+                    if "Text" in sub:
+                        add(sub.get("FirstURL", "") or instant_query, sub.get("FirstURL", ""), sub.get("Text", ""), "duckduckgo_related")
+        except Exception as e:
+            log(f"DuckDuckGo instant falhou: {e}")
 
     try:
         import html
-        import re as _re
 
-        url = f"https://html.duckduckgo.com/html/?q={urllib.request.quote(query)}"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=10) as r:
-            page = r.read().decode("utf-8", errors="replace")
-        results = []
-        for m in _re.finditer(r'<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', page, _re.I | _re.S):
-            href = html.unescape(m.group(1))
-            title = _re.sub(r"<.*?>", "", m.group(2))
-            title = html.unescape(title).strip()
-            if title:
-                results.append(f"{title} - {href}")
-            if len(results) >= 3:
-                break
-        if results:
-            return "\n".join(results)[:800]
-        return f"Sem resultado direto para '{query}'. Tente reformular."
+        html_queries = [query]
+        if recency == "recent":
+            subject = " ".join(key_terms) or query
+            html_queries.extend([
+                f"{subject} news 2026",
+                f"{subject} latest news",
+                f"{subject} blog 2026",
+            ])
+        for html_query in dict.fromkeys(html_queries):
+            url = f"https://html.duckduckgo.com/html/?q={urllib.request.quote(html_query)}"
+            req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                page = r.read().decode("utf-8", errors="replace")
+            matches = list(_re.finditer(r'<a[^>]+class="result__a"[^>]*href="([^"]+)"[^>]*>(.*?)</a>', page, _re.I | _re.S))
+            snippets = [
+                html.unescape(_re.sub(r"<.*?>", "", s)).strip()
+                for s in _re.findall(r'<a[^>]+class="result__snippet"[^>]*>(.*?)</a>', page, _re.I | _re.S)
+            ]
+            for idx, m in enumerate(matches[:8]):
+                href = html.unescape(m.group(1))
+                title = _re.sub(r"<.*?>", "", m.group(2))
+                title = html.unescape(title).strip()
+                snippet = snippets[idx] if idx < len(snippets) else ""
+                haystack = f"{title} {snippet} {href}".lower()
+                if key_terms and not any(term in haystack for term in key_terms):
+                    continue
+                add(title, href, snippet, "duckduckgo_html")
     except Exception as e:
-        return f"Erro na busca: {e}"
+        log(f"DuckDuckGo html falhou: {e}")
+
+    if recency == "recent":
+        source_rank = {"duckduckgo_html": 0, "duckduckgo_instant": 1, "duckduckgo_answer": 1, "duckduckgo_related": 2}
+        results.sort(key=lambda item: source_rank.get(item.get("source"), 9))
+    return results
+
+
+def _resumir_resultados_web(pedido: str, refined: dict, results: list[dict]) -> str | None:
+    if not results:
+        return None
+    linhas = "\n".join(
+        f"{i}. [{item.get('source')}] {item.get('title')}\nURL: {item.get('url')}\nTrecho: {item.get('snippet')}"
+        for i, item in enumerate(results[:8], 1)
+    )
+    system = (
+        "Voce responde buscas web em portugues do Brasil, curto e util.\n"
+        "Use somente os resultados fornecidos. Se os resultados forem fracos, diga isso claramente.\n"
+        "Priorize resultado que corresponda melhor a intencao e recencia pedida.\n"
+        "Inclua 1 a 3 fontes no final, em linhas curtas, usando titulo ou dominio.\n"
+        "Nao invente fatos ausentes nos resultados."
+    )
+    user = (
+        f"Pedido original: {pedido}\n"
+        f"Consulta refinada: {refined.get('query')}\n"
+        f"Intencao: {refined.get('intent')} | Recencia: {refined.get('recency')}\n\n"
+        f"Resultados:\n{linhas}"
+    )
+    raw = chamar_llm(system, user, max_tokens=450, local_fallback=False)
+    return raw.strip() if raw else None
+
+
+def buscar_internet(query: str) -> str:
+    """Busca web refinada: IA gera consulta, coleta resultados e IA resume/rankeia."""
+    refined = _refinar_consulta_web(query)
+    q = refined.get("query") or query
+    results = _coletar_resultados_web(q, refined.get("recency", "stable"))
+    summary = _resumir_resultados_web(query, refined, results)
+    if summary:
+        return summary[:1200]
+    if results:
+        lines = []
+        for item in results[:4]:
+            label = item.get("title") or item.get("url") or q
+            snippet = item.get("snippet") or item.get("url")
+            lines.append(f"{label}\n{snippet}".strip())
+        return "\n\n".join(lines)[:1000]
+    return f"Sem resultado direto para '{q}'. Tente reformular."
 
 
 def buscar_imagem(termo: str, wiki: str = "zelda") -> str:
