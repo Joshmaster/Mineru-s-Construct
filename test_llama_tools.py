@@ -4,7 +4,7 @@
 Teste isolado: valida que llama3.2:3b consegue usar tools do supervisor.
 Bypassa OpenRouter e Groq — usa SOMENTE Ollama local.
 """
-import json, sys, time, urllib.request
+import json, os, sys, time, urllib.request
 from pathlib import Path
 
 if sys.platform == "win32":
@@ -18,12 +18,7 @@ from bot_supervisor import (
     TOOLS_DEFINICAO, OLLAMA_MODEL
 )
 
-FOTO_URL = (
-    "DISCORD_ATTACHMENT_URL"
-    "1493654675088478288/rn_image_picker_lib_temp_a98fd708-f37c-4973-"
-    "be76-e6b2a3915cf2.jpg?ex=69dfc1d1&is=69de7051&"
-    "hm=9ca9a4f540f4cd1e426aadfbaa7c9d710ac1f163a1a5a605bd81b52603878e2b&"
-)
+FOTO_URL = os.environ.get("TEST_IMAGE_URL", "https://example.com/foto_teste.jpg")
 DESKTOP = "~/Desktop/foto_teste.jpg"
 
 SYSTEM = (

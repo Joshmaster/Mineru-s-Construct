@@ -21,6 +21,6 @@ jobs:
           WA_ALLOW_FROM: ${{ secrets.WA_ALLOW_FROM }}
           SKIP_DEPS: "1"
         run: |
-          cd ~/Agents
+          cd "$HOME/Agents"
           bash setup.sh
           echo "hyrule_env.py gerado com sucesso"
