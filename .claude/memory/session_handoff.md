@@ -6,6 +6,21 @@ type: project
 
 ## Feito nesta sessao
 
+### Git e seguranca
+- Historico Git foi sanitizado e enviado para o remoto com `--force-with-lease`.
+- Removidos do historico:
+  - arquivo local de config sensivel antigo;
+  - metadados/caminhos pessoais;
+  - URL assinada de anexo Discord usada em teste;
+  - placeholders com formato de token.
+- Varreduras finais no historico inteiro deram zero para:
+  - padroes de token/API key;
+  - caminhos/nomes pessoais procurados;
+  - IDs/numeros reais especificos do WhatsApp;
+  - alta entropia suspeita em arquivos rastreados.
+- Config local deste repo ajustada para autor com e-mail neutro (`owner@example.local`).
+- Criada memoria `feedback_git_security.md`: antes de push e depois de pull/fetch, validar estado atual e historico inteiro. Se algo parecer pessoal mas ambiguo, perguntar ao OWNER antes de commitar, limpar historico ou subir.
+
 ### Modelo local e `!z` / `!zpensa`
 - Modelo Ollama local trocado para `qwen3:8b`.
 - Referencias antigas a modelo pesado removidas dos bots e do core LLM.
