@@ -13,6 +13,10 @@ Retorna (trigger_at, recurrence_str) onde recurrence vazio = one-shot.
 import re
 from datetime import datetime, timedelta, time as dtime
 from typing import Optional, Tuple
+from zoneinfo import ZoneInfo
+
+
+LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
 
 
 WEEKDAYS = {
@@ -70,7 +74,7 @@ def parse_time_expression(text: str, now: Optional[datetime] = None
     recurrence == "weekly N HH:MM" (N=0=segunda, 6=domingo).
     """
     if now is None:
-        now = datetime.now()
+        now = datetime.now(LOCAL_TZ)
 
     text = _normalize(text)
 
@@ -185,7 +189,7 @@ def next_recurrence(recurrence: str, now: Optional[datetime] = None
                     ) -> Optional[int]:
     """Calcula próximo trigger de uma recorrência conhecida."""
     if now is None:
-        now = datetime.now()
+        now = datetime.now(LOCAL_TZ)
 
     parts = recurrence.split()
     if not parts:
@@ -223,8 +227,8 @@ def next_recurrence(recurrence: str, now: Optional[datetime] = None
 
 def format_timestamp(ts: int) -> str:
     """Formata timestamp pra exibição amigável: '29/04 às 14:30'."""
-    dt = datetime.fromtimestamp(ts)
-    now = datetime.now()
+    dt = datetime.fromtimestamp(ts, LOCAL_TZ)
+    now = datetime.now(LOCAL_TZ)
     diff = (dt.date() - now.date()).days
 
     hora = dt.strftime("%H:%M")

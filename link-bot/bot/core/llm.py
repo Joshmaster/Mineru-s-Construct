@@ -170,7 +170,7 @@ def _strip_thinking(text: str) -> str:
 
 # ── OpenRouter ───────────────────────────────────────────────────────────────
 
-def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float = 0.85) -> Optional[str]:
+def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float = 0.85, timeout: int = 20) -> Optional[str]:
     for key in OPENROUTER_KEYS:
         for model in OPENROUTER_MODELS:
             headers = {
@@ -186,7 +186,7 @@ def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float =
                 "max_tokens": max_tokens,
                 "reasoning": {"enabled": True, "effort": "low", "exclude": True},
             }
-            resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload)
+            resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload, timeout=timeout)
             if resp:
                 text = _extract_text(resp)
                 if text and text.strip():
@@ -197,7 +197,7 @@ def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float =
 
 # ── Groq ─────────────────────────────────────────────────────────────────────
 
-def _call_groq(messages: list, max_tokens: int = 300, temperature: float = 0.85) -> Optional[str]:
+def _call_groq(messages: list, max_tokens: int = 300, temperature: float = 0.85, timeout: int = 20) -> Optional[str]:
     for key in GROQ_KEYS:
         for model in GROQ_MODELS:
             headers = {**GROQ_HEADERS, "Authorization": f"Bearer {key}"}
@@ -207,7 +207,7 @@ def _call_groq(messages: list, max_tokens: int = 300, temperature: float = 0.85)
                 "temperature": temperature,
                 "max_tokens": max_tokens,
             }
-            resp = _post("https://api.groq.com/openai/v1/chat/completions", headers, payload)
+            resp = _post("https://api.groq.com/openai/v1/chat/completions", headers, payload, timeout=timeout)
             if resp:
                 text = _extract_text(resp)
                 if text and text.strip():
@@ -218,7 +218,7 @@ def _call_groq(messages: list, max_tokens: int = 300, temperature: float = 0.85)
 
 # ── Ollama local ─────────────────────────────────────────────────────────────
 
-def _call_ollama(messages: list, think: bool = True, num_predict: int = 120, temperature: float = 0.8) -> Optional[str]:
+def _call_ollama(messages: list, think: bool = True, num_predict: int = 120, temperature: float = 0.8, timeout: int = 90) -> Optional[str]:
     payload = {
         "model": OLLAMA_MODEL,
         "messages": messages,
@@ -231,7 +231,7 @@ def _call_ollama(messages: list, think: bool = True, num_predict: int = 120, tem
             "num_predict": num_predict,
         },
     }
-    resp = _post(OLLAMA_URL, {"Content-Type": "application/json"}, payload, timeout=90)
+    resp = _post(OLLAMA_URL, {"Content-Type": "application/json"}, payload, timeout=timeout)
     if not resp:
         return None
     text = (resp.get("message", {}).get("content") or "").strip()
@@ -315,6 +315,92 @@ def extract_image_query(message: str, usuario: str = "") -> str | None:
     data = _json_from_text(raw or "")
     query = str((data or {}).get("query") or "").strip()
     return query[:120] or None
+
+
+def choose_reaction_emoji(
+    message: str,
+    *,
+    usuario: str = "",
+    skill_name: str = "",
+    skill_category: str = "",
+    has_media: bool = False,
+    media_type: str = "",
+    is_admin: bool = False,
+) -> str | None:
+    """Usa LLM para escolher uma única reação de WhatsApp pelo contexto atual."""
+    if not message and not has_media:
+        return None
+
+    system = (
+        "Voce escolhe UMA reacao emoji para uma mensagem no WhatsApp.\n"
+        "Interprete o contexto real da mensagem, intencao, tom, midia anexada e skill acionada.\n"
+        "Contexto: este WhatsApp e um assistente chamado Link/Hyrule. 'menu' significa menu de comandos, nunca comida; nao use 🍔 nesse caso.\n"
+        "Nao responda texto, explicacao, markdown ou JSON. Responda somente UM emoji.\n"
+        "Escolha emojis comuns que funcionem bem como reacao do WhatsApp.\n"
+        "Evite repetir sempre o mesmo emoji; varie conforme o sentido.\n"
+        "Se for impossivel inferir, use ⚔️."
+    )
+    user = (
+        f"Usuario: {usuario or 'desconhecido'}\n"
+        f"Mensagem: {message or '[sem texto]'}\n"
+        f"Skill: {skill_name or 'nenhuma'}\n"
+        f"Categoria: {skill_category or 'nenhuma'}\n"
+        f"Tem midia: {'sim' if has_media else 'nao'}\n"
+        f"Tipo da midia: {media_type or 'nenhum'}\n"
+        f"Admin: {'sim' if is_admin else 'nao'}"
+    )
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": user},
+    ]
+
+    def _openrouter_fast() -> str | None:
+        if not OPENROUTER_KEYS or not OPENROUTER_MODELS:
+            return None
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {OPENROUTER_KEYS[0]}",
+            "HTTP-Referer": "https://hyrule.local",
+            "X-Title": "LinkBot",
+        }
+        payload = {
+            "model": OPENROUTER_MODELS[0],
+            "messages": messages,
+            "temperature": 0.25,
+            "max_tokens": 8,
+            "reasoning": {"enabled": True, "effort": "low", "exclude": True},
+        }
+        resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload, timeout=5)
+        return _extract_text(resp or {}) if resp else None
+
+    def _groq_fast() -> str | None:
+        if not GROQ_KEYS or not GROQ_MODELS:
+            return None
+        headers = {**GROQ_HEADERS, "Authorization": f"Bearer {GROQ_KEYS[0]}"}
+        payload = {
+            "model": GROQ_MODELS[-1],
+            "messages": messages,
+            "temperature": 0.25,
+            "max_tokens": 8,
+        }
+        resp = _post("https://api.groq.com/openai/v1/chat/completions", headers, payload, timeout=5)
+        return _extract_text(resp or {}) if resp else None
+
+    raw = (
+        _openrouter_fast()
+        or _groq_fast()
+        or _call_ollama(messages, think=False, num_predict=8, temperature=0.2, timeout=5)
+    )
+    text = _strip_thinking(raw or "").strip()
+    if not text:
+        return None
+
+    # Pega o primeiro grapheme emoji de forma conservadora para evitar texto junto.
+    text = re.sub(r"[\s`\"'.,;:!?()\[\]{}<>]+", "", text)
+    if not text:
+        return None
+    emoji = text[:2] if len(text) >= 2 and text[1] in ("\ufe0f", "\u20e3") else text[:1]
+    return emoji or None
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

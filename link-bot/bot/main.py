@@ -2,12 +2,12 @@
 """
 Link Bot - Launcher Principal
 ==============================
-Conecta no WhatsApp via neonize, carrega todas as skills,
+Conecta no WhatsApp via bridge Baileys, carrega todas as skills,
 roteia mensagens, dispara lembretes em background.
 
 Uso:
     python -m bot.main           # roda normal
-    python -m bot.main --reset   # apaga sessão e re-pareia
+    python -m bot.main --reset   # apaga sessão Baileys e re-pareia
 
 Config: ler config/config.json (criado pelo personalizar.sh/.bat).
 """
@@ -17,6 +17,7 @@ import importlib
 import json
 import logging
 import os
+import shutil
 import sys
 import tempfile
 import threading
@@ -33,15 +34,12 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
 try:
-    from neonize.aioze.client import NewAClient
-    from neonize.aioze.events import (
-        ConnectedEv, MessageEv, PairStatusEv,
-    )
-    from neonize.utils import build_jid
+    from aiohttp import web as aiohttp_web
 except ImportError:
-    print("❌ Falta neonize. Instala com:  pip install neonize qrcode httpx")
+    print("❌ Falta aiohttp. Instala com:  pip install aiohttp")
     sys.exit(1)
 
+from bot.core.whatsapp_client import WhatsAppClient, build_jid, _Jid
 from bot.core.router import Router, Skill
 from bot.core.context import MessageContext
 from bot.core.storage import Storage
@@ -64,8 +62,7 @@ _handler.setFormatter(BrazilFormatter(
     datefmt="%d/%m/%Y %H:%M:%S",
 ))
 logging.basicConfig(level=logging.INFO, handlers=[_handler], force=True)
-for noisy in ("whatsmeow", "whatsmeow.Client",
-              "whatsmeow.Client.Socket", "neonize"):
+for noisy in ("aiohttp", "aiohttp.access"):
     logging.getLogger(noisy).setLevel(logging.WARNING)
 
 log = logging.getLogger("link-bot")
@@ -76,6 +73,10 @@ def _norm_text(text: str) -> str:
         c for c in unicodedata.normalize("NFD", (text or "").lower())
         if unicodedata.category(c) != "Mn"
     )
+
+
+def _fallback_reaction() -> str:
+    return "⚔️"
 
 
 def load_config() -> dict:
@@ -89,7 +90,6 @@ def load_config() -> dict:
     with open(path, encoding="utf-8") as f:
         raw = f.read()
 
-    # Expande ${ENV_VAR}
     import re
     def replace(m):
         var = m.group(1)
@@ -116,7 +116,6 @@ def load_all_skills(router: Router):
             skill_obj = getattr(mod, "SKILL", None)
             if skill_obj is None:
                 continue
-            # Pode ser uma skill ou lista
             if isinstance(skill_obj, list):
                 for s in skill_obj:
                     router.register(s)
@@ -134,7 +133,7 @@ def load_all_skills(router: Router):
     return loaded
 
 
-# ===================== HANDLERS =====================
+# ===================== BOT =====================
 
 class LinkBot:
     def __init__(self, config: dict):
@@ -152,83 +151,171 @@ class LinkBot:
 
         # JIDs reais por número (populado quando mensagem chega)
         self.user_jids: dict = {}
+        self.last_media: dict = {}
 
-        # Bot identity (preenchido no on_connected)
+        # Bot identity
         self.my_jid = None
 
-        # Allow/admin list: aceita número físico e ID/JID recebido do WhatsApp.
+        # Lembretes aguardando confirmação de reação:
+        # {stanza_id: {text, target_jid_str, next_retry, retry_count}}
+        self._pending_reminder_ack: dict[str, dict] = {}
+        self._retry_task = None
+
+        # Allow/admin list
         self.allow_list = list(access_ctl.allow_keys(config))
         self.admin_list = list(access_ctl.admin_keys(config))
 
-        # Cliente neonize
-        session_path = config.get("SESSION_PATH",
-                                   str(Path.home() / ".linkbot" / "session.sqlite"))
-        Path(session_path).parent.mkdir(parents=True, exist_ok=True)
-        self.client = NewAClient(session_path)
+        # Bridge URL (configurável)
+        bridge_url = config.get("BRIDGE_URL", "http://localhost:7334")
+        self.client = WhatsAppClient(bridge_url)
 
         # Scheduler
         self.scheduler = ReminderScheduler(
             self.storage, self._send_reminder
         )
 
-        # Registra eventos
-        self.client.event(ConnectedEv)(self._on_connected)
-        self.client.event(PairStatusEv)(self._on_pair)
-        self.client.event(MessageEv)(self._on_message)
+    # ── Startup ──────────────────────────────────────────────────────────────
 
-        # QR: salva PNG + mostra no terminal
-        @self.client.event.qr
-        async def _on_qr(_client, qr_bytes: bytes):
-            import qrcode as _qrcode
-            qr_path = str(Path(session_path).parent / "qr.png")
-            img = _qrcode.make(qr_bytes)
-            img.save(qr_path)
-            log.info("=" * 50)
-            log.info("📱 ESCANEIE O QR ABAIXO OU ABRA O ARQUIVO:")
-            log.info(f"   {qr_path}")
-            log.info("=" * 50)
-            try:
-                import segno as _segno
-                _segno.make_qr(qr_bytes).terminal(compact=True)
-            except Exception:
-                pass
-            # Abre a imagem automaticamente
-            try:
-                if sys.platform == "win32":
-                    os.startfile(qr_path)
-                else:
-                    import subprocess as _sp
-                    _sp.Popen(["xdg-open", qr_path],
-                              stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
-            except Exception:
-                pass
-
-    async def _on_connected(self, _client, _ev):
-        log.info("🟢 Conectado ao WhatsApp.")
+    async def _on_connected(self):
+        log.info("🟢 Conectado ao WhatsApp (bridge Baileys).")
         try:
             me = await self.client.get_me()
             self.my_jid = me.JID
         except Exception:
             pass
         await self.scheduler.start()
+        if self._retry_task is None or self._retry_task.done():
+            self._retry_task = asyncio.create_task(self._reminder_retry_loop())
 
-    async def _on_pair(self, _client, ev):
-        try:
-            log.info(f"✅ Pareado: +{ev.ID.User}")
-            self.my_jid = ev.ID
-        except Exception:
-            log.info("✅ Pareamento concluído.")
+    # ── Lembretes ─────────────────────────────────────────────────────────────
 
-    async def _send_reminder(self, user_jid_str: str, text: str):
-        """Callback do scheduler — manda mensagem pro user."""
+    def _reminder_jid_candidates(self, user_jid_str: str):
+        cfg = load_config()
+        keys = access_ctl.identity_keys(user_jid_str)
+        record = access_ctl.contact_record(*keys)
+        if record:
+            keys.extend(record.get("aliases") or [])
+
+        if set(keys) & set(self.admin_list):
+            keys.extend(cfg.get("OWNER_IDS", []) or [])
+            owner = cfg.get("OWNER")
+            if owner:
+                keys.append(owner)
+
+        seen = set()
+        for key in access_ctl.identity_keys(*keys):
+            dig = access_ctl.digits(key)
+            if not dig:
+                continue
+            jid = build_jid(dig)
+            marker = str(jid)
+            if marker and marker not in seen:
+                seen.add(marker)
+                yield jid
+
+    async def _send_reminder(self, user_jid_str: str, text: str,
+                             image_path: str | None = None, *, send_to: str = ""):
+        resp = None
+
+        if not send_to:
+            send_to = str(self.config.get("REMINDERS_GROUP_JID", "") or "").strip()
+
+        if send_to and "@g.us" in send_to:
+            try:
+                jid = build_jid(send_to.split("@")[0], "g.us")
+                if image_path:
+                    resp = await asyncio.wait_for(
+                        self.client.send_image(jid, image_path, caption=text or None),
+                        timeout=25,
+                    )
+                else:
+                    resp = await asyncio.wait_for(self.client.send_message(jid, text), timeout=25)
+                log.info(f"Reminder entregue no grupo {send_to}")
+                self._register_reminder_ack(resp, text, send_to)
+                return
+            except Exception as e:
+                log.warning(f"Falha enviando reminder no grupo {send_to}: {e}")
+
+        last_error = None
+        for jid in self._reminder_jid_candidates(user_jid_str):
+            marker = str(jid)
+            try:
+                if image_path:
+                    resp = await asyncio.wait_for(
+                        self.client.send_image(jid, image_path, caption=text or None),
+                        timeout=25,
+                    )
+                else:
+                    resp = await asyncio.wait_for(self.client.send_message(jid, text), timeout=25)
+                log.info(f"Reminder entregue via {marker}")
+                self._register_reminder_ack(resp, text, marker)
+                return
+            except Exception as e:
+                last_error = e
+                log.warning(f"Falha enviando reminder via {marker}: {e}")
+
         try:
             jid = build_jid(user_jid_str)
-            await self.client.send_message(jid, text)
+            if image_path:
+                resp = await asyncio.wait_for(
+                    self.client.send_image(jid, image_path, caption=text or None),
+                    timeout=25,
+                )
+            else:
+                resp = await asyncio.wait_for(self.client.send_message(jid, text), timeout=25)
+            log.info(f"Reminder entregue via fallback {user_jid_str}")
+            self._register_reminder_ack(resp, text, user_jid_str)
         except Exception as e:
-            log.error(f"Falha enviando reminder: {e}")
+            log.error(f"Falha enviando reminder: {e or last_error}")
+            raise
+
+    def _register_reminder_ack(self, resp, text: str, target: str):
+        msg_id = str(getattr(resp, 'ID', '') or getattr(resp, 'ServerID', '') or '')
+        if not msg_id:
+            return
+        self._pending_reminder_ack[msg_id] = {
+            'text': text,
+            'target': target,
+            'next_retry': int(time.time()) + 15 * 60,
+            'retry_count': 0,
+        }
+        log.info(f"Reminder pendente de confirmação: {msg_id}")
+
+    async def _reminder_retry_loop(self):
+        RETRY_INTERVAL = 15 * 60
+        while True:
+            await asyncio.sleep(60)
+            now = int(time.time())
+            to_retry = [
+                (sid, info) for sid, info in list(self._pending_reminder_ack.items())
+                if info.get('next_retry', 0) <= now
+            ]
+            for sid, info in to_retry:
+                self._pending_reminder_ack.pop(sid, None)
+                target = info.get('target', '')
+                retry_text = f"⏰ (sem confirmação — tentativa {info['retry_count'] + 1})\n{info['text']}"
+                try:
+                    if '@g.us' in target:
+                        jid = build_jid(target.split('@')[0], 'g.us')
+                    else:
+                        jid = build_jid(target.split('@')[0]) if '@' in target else build_jid(target)
+                    resp = await asyncio.wait_for(
+                        self.client.send_message(jid, retry_text), timeout=25
+                    )
+                    new_id = str(getattr(resp, 'ID', '') or '')
+                    if new_id:
+                        self._pending_reminder_ack[new_id] = {
+                            **info,
+                            'next_retry': now + RETRY_INTERVAL,
+                            'retry_count': info['retry_count'] + 1,
+                        }
+                    log.info(f"Reminder retry #{info['retry_count'] + 1} enviado para {target}")
+                except Exception as e:
+                    log.error(f"Falha no retry de reminder para {target}: {e}")
+
+    # ── Allow / Admin ─────────────────────────────────────────────────────────
 
     def _reload_allow_list(self):
-        """Relê config.json do disco (permite hot-reload após !eu / !acesso)."""
         try:
             cfg = load_config()
             self.allow_list = list(access_ctl.allow_keys(cfg))
@@ -237,15 +324,16 @@ class LinkBot:
             pass
 
     def _is_allowed(self, *ids) -> bool:
-        """Verifica se o remetente tá na allow_list (relê config a cada check)."""
         self._reload_allow_list()
         if not self.allow_list:
-            return False  # default deny
+            return False
         return bool(set(access_ctl.identity_keys(*ids)) & set(self.allow_list))
 
     def _is_admin(self, *ids) -> bool:
         self._reload_allow_list()
         return bool(set(access_ctl.identity_keys(*ids)) & set(self.admin_list))
+
+    # ── AI match ─────────────────────────────────────────────────────────────
 
     def _ai_match_skill(self, text: str):
         skill_items = [
@@ -263,8 +351,9 @@ class LinkBot:
             return False
         return skill, intent.get("args", text)
 
+    # ── JID candidates ────────────────────────────────────────────────────────
+
     def _jid_candidates_for_target(self, target: str):
-        """Retorna JIDs prováveis para número físico, LID interno e aliases do contato."""
         keys = access_ctl.identity_keys(target)
         record = access_ctl.contact_record(*keys)
         if record:
@@ -284,18 +373,13 @@ class LinkBot:
             dig = access_ctl.digits(key)
             if not dig:
                 continue
-            servers = []
-            if dig.startswith("55") and len(dig) in (12, 13):
-                servers.append("s.whatsapp.net")
-            else:
-                servers.append("lid")
-            servers.append("s.whatsapp.net")
-            for server in servers:
-                marker = f"{dig}@{server}"
-                if marker in seen:
-                    continue
-                seen.add(marker)
-                candidates.append(build_jid(dig, server))
+            server = "g.us" if dig.endswith("@g.us") else "s.whatsapp.net"
+            jid = build_jid(dig, server)
+            marker = str(jid)
+            if marker in seen:
+                continue
+            seen.add(marker)
+            candidates.append(jid)
         return candidates
 
     async def _send_to_known_or_built_jid(self, target: str, msg: str):
@@ -303,20 +387,16 @@ class LinkBot:
         for jid in self._jid_candidates_for_target(target):
             try:
                 resp = await self.client.send_message(jid, msg)
-                log.info(
-                    f"📤 Admin notify enviado para {target} via "
-                    f"{getattr(jid, 'User', '?')}@{getattr(jid, 'Server', '?')}"
-                )
+                log.info(f"📤 Admin notify enviado para {target} via {jid}")
                 return resp
             except Exception as e:
                 last_error = e
-                log.warning(
-                    f"Falha enviando para {target} via "
-                    f"{getattr(jid, 'User', '?')}@{getattr(jid, 'Server', '?')}: {e}"
-                )
+                log.warning(f"Falha enviando para {target} via {jid}: {e}")
         if last_error:
             raise last_error
         raise ValueError(f"sem JID candidato para {target}")
+
+    # ── Access request flow ───────────────────────────────────────────────────
 
     async def _notify_admins_access_request(self, item: dict, approved: bool = False):
         cfg = load_config()
@@ -362,7 +442,6 @@ class LinkBot:
                 access_ctl.upsert_pending(key, admin_prompt_ids=prompt_ids)
 
     async def _handle_blocked_dm(self, chat_jid, sender_jid, sender_number: str, chat_number: str, text: str, pushname: str):
-        """Fluxo de solicitação: pede nome, admin define código, usuário repete código."""
         key = access_ctl.pending_key(sender_number, chat_number, sender_jid, chat_jid)
         item = access_ctl.load_pending().get(key)
 
@@ -456,145 +535,165 @@ class LinkBot:
             f"código salvo para {item.get('name') or key}. agora espero a pessoa repetir esse código"
         )
 
-        target_jid = item.get("chat_jid") or item.get("sender_jid")
         try:
             await self._send_to_known_or_built_jid(item.get("sender_id") or item.get("phone") or key, "o dono definiu o código. se ele te passar, manda aqui")
         except Exception as e:
             log.warning(f"Não consegui avisar solicitante que o código foi definido: {e}")
         return True
 
-    async def _download_media(self, ev) -> tuple:
-        """Tenta baixar mídia anexa. Retorna (path, kind) ou (None, None)."""
-        msg = ev.Message
-        media_kind = None
-        download_method = None
+    # ── Media ─────────────────────────────────────────────────────────────────
 
-        if msg.imageMessage and msg.imageMessage.URL:
-            media_kind = "image"
-            download_method = "imageMessage"
-        elif msg.videoMessage and msg.videoMessage.URL:
-            media_kind = "video"
-            download_method = "videoMessage"
-        elif msg.audioMessage and msg.audioMessage.URL:
-            media_kind = "audio"
-            download_method = "audioMessage"
-        elif msg.documentMessage and msg.documentMessage.URL:
-            media_kind = "document"
-            download_method = "documentMessage"
-        elif msg.stickerMessage and msg.stickerMessage.URL:
-            media_kind = "sticker"
-            download_method = "stickerMessage"
-
-        if media_kind is None:
+    async def _download_media(self, msg: dict) -> tuple:
+        """Baixa mídia via bridge. Retorna (path, kind) ou (None, None)."""
+        media_info = msg.get("media")
+        if not media_info:
             return None, None
 
-        # Tenta o método mais comum: client.download_any(message)
-        try:
-            ext_map = {
-                "image": ".jpg", "video": ".mp4", "audio": ".ogg",
-                "document": ".bin", "sticker": ".webp",
-            }
-            ext = ext_map.get(media_kind, ".bin")
-            ts = int(time.time())
-            out_path = str(Path(tempfile.gettempdir()) /
-                          f"link_in_{ts}{ext}")
-
-            # Várias APIs possíveis no neonize
-            for method in ("download_any", "download", "download_media"):
-                fn = getattr(self.client, method, None)
-                if fn is None:
-                    continue
-                try:
-                    data = await fn(msg)
-                    if isinstance(data, bytes):
-                        with open(out_path, "wb") as f:
-                            f.write(data)
-                        return out_path, media_kind
-                    elif isinstance(data, str) and os.path.exists(data):
-                        return data, media_kind
-                except Exception:
-                    continue
-            return None, media_kind
-        except Exception as e:
-            log.debug(f"download falhou: {e}")
+        media_kind = media_info.get("type")
+        raw_key = msg.get("rawKey")
+        raw_message = msg.get("rawMessage")
+        if not raw_key or not raw_message:
             return None, media_kind
 
-    def _extract_text(self, msg) -> str:
-        """Extrai texto de qualquer tipo de mensagem."""
-        # Texto puro
-        if hasattr(msg, "conversation") and msg.conversation:
-            return msg.conversation
-        # Texto com formatação
-        if hasattr(msg, "extendedTextMessage") and msg.extendedTextMessage:
-            text = getattr(msg.extendedTextMessage, "text", "")
-            if text:
-                return text
-        # Caption de imagem/vídeo
-        if hasattr(msg, "imageMessage") and msg.imageMessage:
-            cap = getattr(msg.imageMessage, "caption", "")
-            if cap:
-                return cap
-        if hasattr(msg, "videoMessage") and msg.videoMessage:
-            cap = getattr(msg.videoMessage, "caption", "")
-            if cap:
-                return cap
-        return ""
+        ext_map = {
+            "image": ".jpg", "video": ".mp4", "audio": ".ogg",
+            "document": ".bin", "sticker": ".webp",
+        }
+        ext = ext_map.get(media_kind, ".bin")
+        ts = int(time.time())
+        out_path = str(Path(tempfile.gettempdir()) / f"link_in_{ts}{ext}")
 
-    def _quoted_stanza_id(self, msg) -> str:
-        """ID da mensagem marcada/respondida no WhatsApp, quando existir."""
-        candidates = []
-        if hasattr(msg, "extendedTextMessage") and msg.extendedTextMessage:
-            candidates.append(getattr(msg.extendedTextMessage, "contextInfo", None))
-        if hasattr(msg, "imageMessage") and msg.imageMessage:
-            candidates.append(getattr(msg.imageMessage, "contextInfo", None))
-        if hasattr(msg, "videoMessage") and msg.videoMessage:
-            candidates.append(getattr(msg.videoMessage, "contextInfo", None))
-        for ctx in candidates:
-            if not ctx:
-                continue
-            for attr in ("stanzaID", "stanzaId", "stanza_id"):
-                val = getattr(ctx, attr, "")
-                if val:
-                    return str(val)
-        return ""
+        data = await self.client.download_media(raw_key, raw_message)
+        if data:
+            with open(out_path, "wb") as f:
+                f.write(data)
+            return out_path, media_kind
 
-    async def _on_message(self, _client, ev):
-        # Ignora mensagens que VOCÊ enviou
+        return None, media_kind
+
+    def _remember_media(self, sender_key: str, media_path: str, media_kind: str | None) -> str:
+        src = Path(media_path)
+        inbox = Path.home() / ".linkbot" / "inbox"
+        inbox.mkdir(parents=True, exist_ok=True)
+        ext = src.suffix or ".bin"
+        dest = inbox / f"{int(time.time())}_{sender_key}_{media_kind or 'media'}{ext}"
+        shutil.copy2(src, dest)
+        self.last_media[sender_key] = {
+            "path": str(dest),
+            "kind": media_kind,
+            "ts": time.time(),
+        }
+        return str(dest)
+
+    def _recent_media(self, sender_key: str) -> tuple[str | None, str | None]:
+        item = self.last_media.get(sender_key) or {}
+        path = item.get("path")
+        if not path or not os.path.exists(path):
+            return None, None
+        if time.time() - float(item.get("ts") or 0) > 15 * 60:
+            return None, None
+        return path, item.get("kind")
+
+    # ── LLM reaction emoji ────────────────────────────────────────────────────
+
+    async def _llm_reaction(
+        self,
+        text: str,
+        *,
+        skill: Skill | None = None,
+        has_media: bool = False,
+        media_type: str | None = "",
+        is_admin: bool = False,
+        usuario: str = "",
+    ) -> str:
+        loop = asyncio.get_event_loop()
+        def _choose():
+            return _llm.choose_reaction_emoji(
+                text,
+                usuario=usuario,
+                skill_name=getattr(skill, "name", "") if skill else "",
+                skill_category=getattr(skill, "category", "") if skill else "",
+                has_media=has_media,
+                media_type=media_type or "",
+                is_admin=is_admin,
+            )
         try:
-            if ev.Info.MessageSource.IsFromMe:
-                return
-        except Exception:
-            pass
-
-        # Identidade do remetente
-        try:
-            chat = ev.Info.MessageSource.Chat
-            sender = ev.Info.MessageSource.Sender
-            chat_jid = chat
-            sender_jid = sender
-            sender_number = access_ctl.jid_user(sender)
-            chat_number = access_ctl.jid_user(chat)
-            is_group = ev.Info.MessageSource.IsGroup
+            emoji = await asyncio.wait_for(loop.run_in_executor(None, _choose), timeout=8)
+            return emoji or _fallback_reaction()
         except Exception as e:
-            log.debug(f"falha ao extrair source: {e}")
+            log.debug(f"reacao via LLM fallback falhou: {e}")
+            return _fallback_reaction()
+
+    # ── Reminder reaction ack ─────────────────────────────────────────────────
+
+    def _check_reminder_reaction(self, msg: dict) -> bool:
+        """Retorna True se é reação a um lembrete pendente (cancela retry)."""
+        if msg.get("messageType") != "reactionMessage":
+            return False
+        raw = msg.get("rawMessage") or {}
+        rxn = raw.get("reactionMessage") or {}
+        target_id = (rxn.get("key") or {}).get("id", "")
+        if target_id and target_id in self._pending_reminder_ack:
+            info = self._pending_reminder_ack.pop(target_id)
+            log.info(f"✅ Reminder confirmado por reação (após {info['retry_count']} retentativas)")
+        return True
+
+    # ── Group mention ─────────────────────────────────────────────────────────
+
+    def _is_bot_mentioned(self, msg: dict) -> bool:
+        my_user = getattr(self.my_jid, "User", "") if self.my_jid else ""
+        if not my_user:
+            return False
+        text = msg.get("text", "")
+        if f"@{my_user}" in (text or ""):
+            return True
+        raw = msg.get("rawMessage") or {}
+        for field in ("extendedTextMessage", "imageMessage", "videoMessage", "audioMessage"):
+            obj = raw.get(field) or {}
+            ctx = obj.get("contextInfo") or {}
+            for jid in (ctx.get("mentionedJid") or []):
+                if my_user in str(jid):
+                    return True
+        return False
+
+    # ── Message handler ───────────────────────────────────────────────────────
+
+    async def _on_message(self, msg: dict):
+        """Processa mensagem recebida via webhook do bridge."""
+        chat_jid_str = msg.get("chat", "")
+        sender_jid_str = msg.get("sender", "")
+        is_group = bool(msg.get("isGroup"))
+        text = msg.get("text", "")
+        quoted_id = msg.get("quotedMsgId", "")
+        pushname = msg.get("pushName", "")
+        message_id = msg.get("msgId", "")
+
+        # Cria JIDs compatíveis com código existente
+        chat_jid = build_jid(chat_jid_str)
+        sender_jid = build_jid(sender_jid_str)
+        sender_number = access_ctl.jid_user(sender_jid)
+        chat_number = access_ctl.jid_user(chat_jid)
+
+        # Reação a lembrete pendente
+        if self._check_reminder_reaction(msg):
             return
 
-        # Texto e metadados básicos vêm antes do gate de acesso para o fluxo de liberação.
-        text = self._extract_text(ev.Message)
-        quoted_id = self._quoted_stanza_id(ev.Message)
-        pushname = getattr(ev.Info, "Pushname", "") or ""
-        message_id = getattr(ev.Info, "ID", "") or ""
-
-        # Armazena JIDs reais para envio posterior via HTTP/API/admin.
-        for key in access_ctl.identity_keys(sender_number, chat_number, sender_jid, chat_jid):
+        # Registra JIDs conhecidos
+        for key in access_ctl.identity_keys(sender_number, chat_number, sender_jid_str, chat_jid_str):
             self.user_jids[key] = chat_jid
+
+        # Grupo: só responde a !comando ou @menção explícita
+        if is_group:
+            mentioned = self._is_bot_mentioned(msg)
+            if not (text or "").strip().startswith("!") and not mentioned:
+                return
 
         # Allow list (só DM)
         if not is_group:
-            if not self._is_allowed(sender_number, chat_number, sender_jid, chat_jid):
+            if not self._is_allowed(sender_number, chat_number, sender_jid_str, chat_jid_str):
                 log.warning(
                     f"Mensagem BLOQUEADA: sender_id={sender_number} phone/chat={chat_number} "
-                    f"jid={sender_jid}"
+                    f"jid={sender_jid_str}"
                 )
                 try:
                     await self._handle_blocked_dm(chat_jid, sender_jid, sender_number, chat_number, text, pushname)
@@ -602,18 +701,36 @@ class LinkBot:
                     log.error("Falha no fluxo de liberação", exc_info=True)
                 return
 
+        sender_key = access_ctl.pending_key(sender_number, chat_number, sender_jid_str, chat_jid_str)
+        incoming_media_path = None
+        incoming_media_kind = None
+        has_media_flag = bool(msg.get("media"))
+        if has_media_flag:
+            incoming_media_path, incoming_media_kind = await self._download_media(msg)
+            if incoming_media_path:
+                incoming_media_path = self._remember_media(sender_key, incoming_media_path, incoming_media_kind)
+
         if not text or not text.strip():
+            if incoming_media_path:
+                await self.client.send_message(
+                    chat_jid,
+                    "recebi o arquivo. manda `salva` ou reenvia com legenda do que quer fazer"
+                )
+                log.info(
+                    f"📥 [id={sender_number} phone/chat={chat_number}] "
+                    f"midia sem texto salva em {incoming_media_path}"
+                )
             return
         log.info(f"📩 [id={sender_number} phone/chat={chat_number}] {text[:80]}")
-        access_ctl.merge_contact_ids(sender_number, chat_number, sender_jid, chat_jid)
+        access_ctl.merge_contact_ids(sender_number, chat_number, sender_jid_str, chat_jid_str)
 
-        if self._is_admin(sender_number, chat_number, sender_jid, chat_jid):
+        if self._is_admin(sender_number, chat_number, sender_jid_str, chat_jid_str):
             if await self._handle_admin_code_reply(chat_jid, text, quoted_id):
                 log.info(f"🔑 Código definido pelo dono para pedido pendente")
                 return
 
-        if not self._is_admin(sender_number, chat_number, sender_jid, chat_jid):
-            key = f"known_name:{access_ctl.pending_key(sender_number, chat_number, sender_jid, chat_jid)}"
+        if not self._is_admin(sender_number, chat_number, sender_jid_str, chat_jid_str):
+            key = f"known_name:{access_ctl.pending_key(sender_number, chat_number, sender_jid_str, chat_jid_str)}"
             pending = access_ctl.load_pending().get(key)
             if pending and pending.get("step") == "known_name":
                 name = text.strip()[:80]
@@ -623,18 +740,22 @@ class LinkBot:
                 log.info(f"👤 Nome salvo para {sender_number}/{chat_number}: {name}")
                 return
 
-            if not access_ctl.has_contact_name(sender_number, chat_number, sender_jid, chat_jid):
+            if not access_ctl.has_contact_name(sender_number, chat_number, sender_jid_str, chat_jid_str):
                 fallback_name = (pushname or "").strip()
                 if fallback_name and fallback_name.lower() not in {"whatsapp", "unknown", "desconhecido"}:
                     access_ctl.set_contact_name(fallback_name, sender_number, chat_number, sender_jid, chat_jid)
+                elif is_group:
+                    access_ctl.set_contact_name(
+                        sender_number, sender_number, chat_number, sender_jid, chat_jid
+                    )
                 else:
                     access_ctl.upsert_pending(
                         key,
                         sender_id=sender_number,
                         phone=chat_number,
-                        chat_id=access_ctl.digits(chat_jid),
-                        sender_jid=str(sender_jid),
-                        chat_jid=str(chat_jid),
+                        chat_id=access_ctl.digits(chat_jid_str),
+                        sender_jid=sender_jid_str,
+                        chat_jid=chat_jid_str,
                         step="known_name",
                     )
                     await self.client.send_message(chat_jid, "não sei teu nome ainda. como posso te chamar?")
@@ -642,16 +763,17 @@ class LinkBot:
 
         text_norm = _norm_text(text)
         if any(x in text_norm for x in ["quem sou eu", "quem e eu", "qual meu nome", "sabe quem sou", "lembra de mim"]):
-            nome = access_ctl.display_name(sender_number, chat_number, sender_jid, chat_jid, pushname=pushname)
-            papel = "meu parceiro e dono desse sistema" if self._is_admin(sender_number, chat_number, sender_jid, chat_jid) else "usuário autorizado"
+            nome = access_ctl.display_name(sender_number, chat_number, sender_jid_str, chat_jid_str, pushname=pushname)
+            papel = "meu parceiro e dono desse sistema" if self._is_admin(sender_number, chat_number, sender_jid_str, chat_jid_str) else "usuário autorizado"
             reply = f"você é {nome}, {papel}"
             await self.client.send_message(chat_jid, reply)
             log.info(f"📤 [id={sender_number} phone/chat={chat_number}] {reply}")
             return
 
-        # Match: comandos explícitos usam router direto; linguagem natural passa pela IA.
+        # Match skills
         stripped = text.strip()
-        if stripped.startswith(("!", "[")):
+        direct_router = self.router.match(text)
+        if stripped.startswith(("!", "[")) or (direct_router and direct_router[0].name in {"ajuda"}):
             match = self.router.match(text)
         else:
             ai_match = await asyncio.get_event_loop().run_in_executor(None, self._ai_match_skill, text)
@@ -661,8 +783,8 @@ class LinkBot:
                 match = self.router.match(text)
             else:
                 match = ai_match
+
         if match is None:
-            # Fallback LLM com persona Link (OpenRouter → Groq)
             try:
                 _ctx_llm = MessageContext(
                     raw_text=text, args_text=text,
@@ -671,8 +793,15 @@ class LinkBot:
                     my_jid=self.my_jid, pushname=pushname,
                     client=self.client,
                 )
+                nome_usuario = access_ctl.display_name(sender_number, chat_number, sender_jid_str, chat_jid_str, pushname=pushname)
                 await _ctx_llm.typing()
-                nome_usuario = access_ctl.display_name(sender_number, chat_number, sender_jid, chat_jid, pushname=pushname)
+                await _ctx_llm.react(await self._llm_reaction(
+                    text,
+                    has_media=bool(incoming_media_path),
+                    media_type=incoming_media_kind,
+                    is_admin=self._is_admin(sender_number, chat_number, sender_jid_str, chat_jid_str),
+                    usuario=nome_usuario,
+                ))
                 reply = await asyncio.get_event_loop().run_in_executor(
                     None, _llm.chat, sender_number, text, nome_usuario
                 )
@@ -681,22 +810,25 @@ class LinkBot:
             except Exception as e:
                 log.error(f"LLM fallback falhou: {e}")
                 await self.client.send_message(chat_jid, "🌀")
-                log.info(f"📤 [id={sender_number} phone/chat={chat_number}] 🌀")
             return
 
         skill, rest = match
         log.info(f"  → skill: {skill.name}")
 
-        # Mídia (se necessária)
         media_path = None
         media_kind = None
         has_media = False
 
-        if skill.requires_media or self._has_media(ev.Message):
-            media_path, media_kind = await self._download_media(ev)
-            has_media = media_path is not None
+        if incoming_media_path:
+            media_path, media_kind = incoming_media_path, incoming_media_kind
+        elif skill.requires_media:
+            media_path, media_kind = self._recent_media(sender_key)
+        elif has_media_flag:
+            media_path, media_kind = await self._download_media(msg)
+            if media_path:
+                media_path = self._remember_media(sender_key, media_path, media_kind)
+        has_media = media_path is not None
 
-        # Monta contexto
         ctx = MessageContext(
             raw_text=text,
             args_text=rest,
@@ -715,11 +847,20 @@ class LinkBot:
             router=self.router,
         )
 
-        # Reage com espada + mostra digitando
-        await ctx.react("⚔️")
+        nome_usuario = access_ctl.display_name(sender_number, chat_number, sender_jid_str, chat_jid_str, pushname=pushname)
         await ctx.typing()
+        if skill.name == "ajuda":
+            await ctx.react("📜")
+        else:
+            await ctx.react(await self._llm_reaction(
+                text,
+                skill=skill,
+                has_media=has_media,
+                media_type=media_kind,
+                is_admin=self._is_admin(sender_number, chat_number, sender_jid_str, chat_jid_str),
+                usuario=nome_usuario,
+            ))
 
-        # Dispara
         try:
             await skill.handler(ctx)
             log.info(f"✅ skill concluida: {skill.name}")
@@ -733,14 +874,30 @@ class LinkBot:
             except Exception:
                 pass
 
-    def _has_media(self, msg) -> bool:
-        return any([
-            getattr(msg, "imageMessage", None),
-            getattr(msg, "videoMessage", None),
-            getattr(msg, "audioMessage", None),
-            getattr(msg, "documentMessage", None),
-            getattr(msg, "stickerMessage", None),
-        ])
+    # ── Webhook server (recebe do bridge) ─────────────────────────────────────
+
+    async def _webhook_handler(self, request: aiohttp_web.Request) -> aiohttp_web.Response:
+        try:
+            payload = await request.json()
+            event = payload.get("event", "")
+            if event == "message":
+                asyncio.create_task(self._on_message(payload))
+        except Exception as e:
+            log.error(f"Webhook erro: {e}")
+        return aiohttp_web.Response(status=200, text="ok")
+
+    async def _start_webhook_server(self) -> aiohttp_web.AppRunner:
+        app = aiohttp_web.Application()
+        app.router.add_post("/webhook", self._webhook_handler)
+        runner = aiohttp_web.AppRunner(app)
+        await runner.setup()
+        webhook_port = self.config.get("WEBHOOK_PORT", 7333)
+        site = aiohttp_web.TCPSite(runner, "127.0.0.1", webhook_port)
+        await site.start()
+        log.info(f"📡 Webhook Python em http://localhost:{webhook_port}/webhook")
+        return runner
+
+    # ── HTTP API (porta 7332 — envio externo via Python) ──────────────────────
 
     def _start_http_api(self, loop: asyncio.AbstractEventLoop):
         """Sobe HTTP API na porta 7332 para envio externo de mensagens WhatsApp."""
@@ -763,7 +920,6 @@ class LinkBot:
                         if not msg.startswith("✨"):
                             msg = f"✨ {msg}"
                     else:
-                        # ✨ é exclusivo do /triforce — LLM não pode usar como prefixo
                         while msg.startswith("✨"):
                             msg = msg.lstrip("✨").strip()
                     if not msg:
@@ -780,18 +936,12 @@ class LinkBot:
                             )
                             resp = fut.result(timeout=15)
                             response_id = str(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
-                            log.info(
-                                f"📤 HTTP /send entregue para {to_num} via "
-                                f"{getattr(jid, 'User', '?')}@{getattr(jid, 'Server', '?')}"
-                            )
+                            log.info(f"📤 HTTP /send entregue para {to_num} via {jid}")
                             sent = True
                             break
                         except Exception as e:
                             last_error = e
-                            log.warning(
-                                f"HTTP /send falhou para {to_num} via "
-                                f"{getattr(jid, 'User', '?')}@{getattr(jid, 'Server', '?')}: {e}"
-                            )
+                            log.warning(f"HTTP /send falhou para {to_num} via {jid}: {e}")
                     if not sent:
                         raise ValueError(f"JID desconhecido/inalcançável para {to_num}: {last_error}")
                     self.send_response(200)
@@ -806,49 +956,86 @@ class LinkBot:
                     )
 
             def log_message(self, *args):
-                pass  # silencioso
+                pass
 
         server = ThreadingHTTPServer(("127.0.0.1", 7332), _Handler)
         log.info("📡 WhatsApp HTTP API em http://localhost:7332")
         server.serve_forever()
 
+    # ── Run ───────────────────────────────────────────────────────────────────
+
     async def run(self):
         log.info("=" * 50)
-        log.info("🗡️  LINK BOT — TOTK Edition")
+        log.info("🗡️  LINK BOT — TOTK Edition (Baileys Bridge)")
         log.info("=" * 50)
 
         if not self.allow_list:
             log.warning("⚠️ ALLOW_FROM vazio! Ninguém poderá falar com o bot.")
             log.warning("   Edita config/config.json e bota seu número.")
 
-        try:
-            loop = asyncio.get_event_loop()
-            t = threading.Thread(
-                target=self._start_http_api, args=(loop,), daemon=True
-            )
-            t.start()
+        # Aguarda bridge estar online
+        bridge_url = self.config.get("BRIDGE_URL", "http://localhost:7334")
+        log.info(f"⏳ Aguardando bridge em {bridge_url} ...")
+        for attempt in range(30):
+            if await self.client.is_connected():
+                break
+            # Bridge pode estar subindo mas não conectado ainda — tenta status
+            try:
+                import httpx as _hx
+                async with _hx.AsyncClient() as hc:
+                    r = await hc.get(f"{bridge_url}/status", timeout=2)
+                    if r.status_code == 200:
+                        data = r.json()
+                        if data.get("hasQr"):
+                            log.info(f"📱 Escaneie o QR em: {bridge_url}/qr")
+                        break
+            except Exception:
+                pass
+            await asyncio.sleep(2)
+        else:
+            log.warning("⚠️ Bridge não respondeu. Verifique se 'node whatsapp-bridge/index.js' está rodando.")
 
-            task = await self.client.connect()
-            await task  # mantém ativo até desconectar
-        except Exception as e:
-            log.error(f"Falha ao conectar: {e}")
-            return
+        loop = asyncio.get_event_loop()
+
+        # HTTP API thread (porta 7332)
+        t = threading.Thread(target=self._start_http_api, args=(loop,), daemon=True)
+        t.start()
+
+        # Webhook server (porta 7333)
+        runner = await self._start_webhook_server()
+
+        # Conectado
+        await self._on_connected()
+
+        log.info("✅ Bot pronto. Aguardando mensagens via bridge...")
+
+        try:
+            while True:
+                await asyncio.sleep(60)
+                if not await self.client.is_connected():
+                    log.warning("⚠️ Bridge desconectado do WhatsApp. Aguardando reconexão...")
+        except asyncio.CancelledError:
+            pass
         finally:
+            await runner.cleanup()
             await self.scheduler.stop()
+            if self._retry_task and not self._retry_task.done():
+                self._retry_task.cancel()
             self.storage.close()
+            await self.client.close()
 
 
 # ===================== MAIN =====================
 
 async def main():
     if "--reset" in sys.argv:
-        config = load_config()
-        session = Path(config.get("SESSION_PATH",
-                                   str(Path.home() / ".linkbot" / "session.sqlite")))
-        if session.exists():
-            session.unlink()
-            print(f"🔥 Sessão apagada: {session}")
-            print("Próxima execução vai pedir QR de novo.")
+        auth_dir = Path(__file__).resolve().parents[2] / "whatsapp-bridge" / "auth"
+        if auth_dir.exists():
+            shutil.rmtree(auth_dir)
+            print(f"🔥 Sessão Baileys apagada: {auth_dir}")
+            print("Próxima execução do bridge vai pedir QR de novo.")
+        else:
+            print(f"Sessão não encontrada em {auth_dir}")
         return
 
     config = load_config()

@@ -3,13 +3,14 @@ Contexto da mensagem - passado pra cada skill como argumento.
 
 Encapsula:
 - info da mensagem (autor, texto, mídia anexa)
-- referência ao client neonize (pra responder)
+- referência ao WhatsAppClient (pra responder)
 - storage compartilhado (TODOs, notas, lembretes)
 - config global
 """
 
 from dataclasses import dataclass, field
 from typing import Optional, Any
+import asyncio
 
 
 @dataclass
@@ -37,7 +38,7 @@ class MessageContext:
     media_path: Optional[str] = None      # caminho local após download
 
     # Referências do bot
-    client: Any = None              # NewAClient do neonize
+    client: Any = None              # WhatsAppClient (bridge Baileys)
     storage: Any = None             # instância de Storage
     config: Any = None              # dict de config
     router: Any = None              # pra skill /ajuda listar comandos
@@ -54,13 +55,15 @@ class MessageContext:
 
     async def react(self, emoji: str):
         """Reage à mensagem com emoji."""
-        if self.client is None or not self.message_id or self.my_jid is None:
+        if self.client is None or not self.message_id:
             return
         try:
-            reaction = await self.client.build_reaction(
+            result = await self.client.build_reaction(
                 self.chat_jid, self.my_jid, self.message_id, emoji
             )
-            await self.client.send_message(self.chat_jid, reaction)
+            # Bridge envia reação direto e retorna None; Neonize retornava proto
+            if result is not None:
+                await self.client.send_message(self.chat_jid, result)
         except Exception:
             pass
 
@@ -69,12 +72,7 @@ class MessageContext:
         if self.client is None:
             return
         try:
-            from neonize.utils.enum import ChatPresence, ChatPresenceMedia
-            await self.client.send_chat_presence(
-                self.chat_jid,
-                ChatPresence.CHAT_PRESENCE_COMPOSING,
-                ChatPresenceMedia.CHAT_PRESENCE_MEDIA_TEXT,
-            )
+            await self.client.send_chat_presence(self.chat_jid, "COMPOSING")
         except Exception:
             pass
 
@@ -83,12 +81,7 @@ class MessageContext:
         if self.client is None:
             return
         try:
-            from neonize.utils.enum import ChatPresence, ChatPresenceMedia
-            await self.client.send_chat_presence(
-                self.chat_jid,
-                ChatPresence.CHAT_PRESENCE_PAUSED,
-                ChatPresenceMedia.CHAT_PRESENCE_MEDIA_TEXT,
-            )
+            await self.client.send_chat_presence(self.chat_jid, "PAUSED")
         except Exception:
             pass
 
@@ -98,11 +91,26 @@ class MessageContext:
             print(f"[send_image mock] {file_path}")
             return
         try:
-            await self.client.send_image(self.chat_jid, file_path, caption=caption or None)
+            await asyncio.wait_for(
+                self.client.send_image(self.chat_jid, file_path, caption=caption or None),
+                timeout=12,
+            )
+        except asyncio.TimeoutError:
+            print(f"[send_image timeout] {file_path}")
+            if caption:
+                await self.reply(caption)
         except Exception as e:
             print(f"[send_image err] {e}")
             if caption:
                 await self.reply(caption)
+
+    async def send_buttons(self, text: str, buttons: list[tuple[str, str]], footer: str = "") -> bool:
+        """Botões nativos — não suportados via bridge Baileys, retorna False."""
+        return False
+
+    async def send_list(self, title: str, description: str, rows: list[tuple[str, str, str]], button_text: str = "Abrir", footer: str = "") -> bool:
+        """Lista nativa — não suportada via bridge Baileys, retorna False."""
+        return False
 
     async def send_audio_ptt(self, file_path: str):
         """Envia áudio como nota de voz (PTT)."""

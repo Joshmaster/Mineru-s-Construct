@@ -52,7 +52,8 @@ class Storage:
             trigger_at INTEGER NOT NULL,
             recurrence TEXT,
             sent INTEGER DEFAULT 0,
-            created_at INTEGER NOT NULL
+            created_at INTEGER NOT NULL,
+            send_to TEXT
         );
         CREATE INDEX IF NOT EXISTS idx_rem_trigger ON reminders(sent, trigger_at);
 
@@ -80,6 +81,11 @@ class Storage:
             updated_at INTEGER NOT NULL
         );
         """)
+        # Migration: send_to column for group reminders
+        rem_cols = {row["name"] for row in c.execute("PRAGMA table_info(reminders)").fetchall()}
+        if "send_to" not in rem_cols:
+            c.execute("ALTER TABLE reminders ADD COLUMN send_to TEXT")
+
         cols = {row["name"] for row in c.execute("PRAGMA table_info(contacts)").fetchall()}
         if "contact_uid" not in cols:
             c.execute("ALTER TABLE contacts ADD COLUMN contact_uid TEXT")
@@ -173,12 +179,13 @@ class Storage:
     # ============ Lembretes ============
 
     def reminder_add(self, user_jid: str, text: str,
-                     trigger_at: int, recurrence: str = "") -> int:
+                     trigger_at: int, recurrence: str = "",
+                     send_to: str = "") -> int:
         c = self.conn.cursor()
         c.execute(
-            "INSERT INTO reminders (user_jid, text, trigger_at, recurrence, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (user_jid, text, trigger_at, recurrence, int(time.time()))
+            "INSERT INTO reminders (user_jid, text, trigger_at, recurrence, created_at, send_to) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (user_jid, text, trigger_at, recurrence, int(time.time()), send_to or "")
         )
         self.conn.commit()
         return c.lastrowid

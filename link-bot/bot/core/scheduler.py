@@ -9,6 +9,11 @@ import time
 import logging
 from typing import Callable, Awaitable
 
+from bot.core.reminder_art import (
+    plain_reminder_text,
+    reminder_caption,
+    render_reminder_card,
+)
 from bot.core.timeparse import next_recurrence
 
 
@@ -60,20 +65,34 @@ class ReminderScheduler:
 
         for r in due:
             user_jid = r["user_jid"]
+            send_to = r.get("send_to") or ""
             text = r["text"]
             recurrence = r["recurrence"] or ""
             rid = r["id"]
 
-            # Mensagem do lembrete
-            msg = f"⏰ *Pergaminho do Tempo* 📜\n\n_{text}_"
+            image_path = None
 
             try:
-                await self.send_fn(user_jid, msg)
-                log.info(f"Disparei lembrete #{rid} pra {user_jid}")
+                image_path = render_reminder_card(r)
+                await self.send_fn(user_jid, reminder_caption(r), image_path, send_to=send_to)
+                log.info(f"Disparei lembrete #{rid} pra {send_to or user_jid}")
             except Exception as e:
-                log.error(f"Falha ao disparar #{rid}: {e}")
-                # Não marca como enviado, tenta de novo no próximo tick
-                continue
+                log.error(f"Falha ao disparar imagem #{rid}: {e}")
+                try:
+                    await self.send_fn(user_jid, plain_reminder_text(r), None, send_to=send_to)
+                    log.info(f"Disparei lembrete #{rid} como texto pra {send_to or user_jid}")
+                except Exception as fallback_error:
+                    log.error(f"Falha ao disparar #{rid}: {fallback_error}")
+                    continue
+            finally:
+                if image_path:
+                    try:
+                        import os
+                        os.remove(image_path)
+                    except FileNotFoundError:
+                        pass
+                    except Exception:
+                        pass
 
             # Pós-disparo: recorrente ou one-shot?
             if recurrence:

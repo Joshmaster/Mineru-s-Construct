@@ -57,7 +57,7 @@ Todos os agentes ficam em `~/Agents/`.
 - Usa `claude --print --continue --dangerously-skip-permissions --no-session-persistence --output-format json`
 - Responde no canal do item: Discord (`localhost:7331`) ou WhatsApp (`localhost:7332`)
 - Não usa fallback LLM para mascarar erro do Claude; falha aparece explicitamente
-- Lê `~/.claude/.credentials.json` e alerta OWNER quando o token OAuth resta menos de 120 min
+- Nao envia mais alerta preventivo de token/OAuth do Claude; falhas da TRIFORCE aparecem quando a fila tenta executar.
 
 ### MAJORA watcher (`watch_codex_queue.py`)
 - Polling a cada 2s em `codex_queue.json`

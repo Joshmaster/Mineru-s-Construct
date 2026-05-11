@@ -1,27 +1,27 @@
-"""Gera QR do WhatsApp e imprime como ASCII no terminal."""
-import sys, asyncio, qrcode as _qr
-from pathlib import Path
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+"""
+Exibe o QR do WhatsApp no terminal.
 
-from neonize.aioze.client import NewAClient
-from neonize.aioze.events import ConnectedEv
+Com Baileys bridge: acessa http://localhost:7334/qr no browser.
+Este script agora só redireciona para o bridge.
+"""
+import sys
+import urllib.request
 
-client = NewAClient("qr_pair")
+BRIDGE_URL = "http://localhost:7334"
 
-@client.event.qr
-async def on_qr(c, data: bytes):
-    q = _qr.QRCode(border=1)
-    q.add_data(data)
-    q.make()
-    print("\n" + "="*50)
-    print("  ESCANEIE NO WHATSAPP (Aparelhos conectados)")
-    print("="*50)
-    q.print_ascii(invert=True)
-    print("="*50 + "\n")
+try:
+    with urllib.request.urlopen(f"{BRIDGE_URL}/status", timeout=3) as r:
+        import json
+        data = json.loads(r.read())
+except Exception:
+    print("Bridge não está rodando. Inicia com: node whatsapp-bridge/index.js")
+    sys.exit(1)
 
-@client.event(ConnectedEv)
-async def on_connected(c, ev):
-    print("\n✓ WhatsApp conectado!")
-    sys.exit(0)
-
-asyncio.run(client.connect())
+if data.get("connected"):
+    print("✅ WhatsApp já está conectado.")
+elif data.get("hasQr"):
+    print(f"\n📱 Escaneie o QR em: {BRIDGE_URL}/qr\n")
+    print("Abra o link no browser ou use:")
+    print(f"  curl {BRIDGE_URL}/qr > qr.html && xdg-open qr.html")
+else:
+    print("Bridge está iniciando, aguarde alguns segundos e tente de novo.")

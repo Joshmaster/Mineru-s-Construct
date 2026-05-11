@@ -15,17 +15,37 @@ from bot.core.timeparse import (
 )
 
 
+def _group_jid_from_config(ctx: MessageContext) -> str:
+    """Retorna o JID do grupo de lembretes configurado, se houver."""
+    cfg = getattr(ctx, 'config', None) or {}
+    return str(cfg.get("REMINDERS_GROUP_JID", "") or "").strip()
+
+
 async def _criar(ctx: MessageContext, args: str):
     """Cria um lembrete. args contém tempo + texto, ex: 'daqui 30min de tomar agua'."""
-    if not args.strip():
+    # Detecta keyword 'grupo' para enviar ao grupo configurado
+    send_to = ""
+    args_clean = args.strip()
+    grupo_match = re.match(r'^grupo\b\s*', args_clean, re.IGNORECASE)
+    if grupo_match:
+        args_clean = args_clean[grupo_match.end():]
+        send_to = _group_jid_from_config(ctx)
+        if not send_to:
+            await ctx.reply(
+                "grupo de lembretes não configurado 🌀\n"
+                "Pede pro dono adicionar REMINDERS_GROUP_JID no config.json"
+            )
+            return
+
+    if not args_clean:
         await ctx.reply(
             "Marca o pergaminho como, parceiro? 📜\n"
             "_Ex: me lembra daqui 30 minutos de beber agua_\n"
-            "_Ex: me lembra todo dia 22h do remedio_"
+            "_Ex: me lembra grupo todo dia 22h do remedio_"
         )
         return
 
-    parsed = parse_time_expression(args)
+    parsed = parse_time_expression(args_clean)
     if parsed is None:
         await ctx.reply(
             "Não entendi quando 🌀. Tenta assim:\n"
@@ -35,9 +55,7 @@ async def _criar(ctx: MessageContext, args: str):
 
     trigger_at, recurrence = parsed
 
-    # Extrai texto do lembrete: tira expressões de tempo conhecidas
-    text = args
-    # remove padrões de tempo
+    text = args_clean
     patterns = [
         r"daqui\s+\d+\s*(?:min|minutos?|h|horas?|dias?)",
         r"em\s+\d+\s*(?:min|minutos?|h|horas?)",
@@ -63,16 +81,17 @@ async def _criar(ctx: MessageContext, args: str):
         text = "(sem descrição)"
 
     sender = str(ctx.sender_jid).split("@")[0]
-    rid = ctx.storage.reminder_add(sender, text, trigger_at, recurrence)
+    rid = ctx.storage.reminder_add(sender, text, trigger_at, recurrence, send_to=send_to)
 
     quando = format_timestamp(trigger_at)
     extra = f"\n📜 Recorrente: {humanize_recurrence(recurrence)}" if recurrence else ""
+    destino = f"\n📍 Grupo: {send_to}" if send_to else ""
 
     await ctx.reply(
         f"📜 Pergaminho marcado, parceiro!\n"
         f"⏰ {quando}\n"
         f"⚔️ {text}\n"
-        f"#{rid}{extra}"
+        f"#{rid}{extra}{destino}"
     )
 
 

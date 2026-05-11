@@ -7,7 +7,7 @@ from bot.core.context import MessageContext
 from bot.core import access as access_ctl
 
 CONFIG_PATH = Path(__file__).resolve().parents[2] / "config" / "config.json"
-MENU_IMG    = Path(__file__).resolve().parents[2] / ".linkbot" / "menu.jpg"
+MENU_IMG    = Path(__file__).resolve().parents[3] / "assets" / "banner.jpg"
 
 
 def _is_owner(ctx: MessageContext) -> bool:
@@ -87,17 +87,14 @@ def _gerar_imagem():
             ("  guarda no baú", WHITE),
             ("  meu baú", WHITE),
             ("", None),
-            ("🧰 Relíquias",  TEAL),
-            ("  !calc 150 * 38", WHITE),
-            ("  converte 10km em milhas", WHITE),
-            ("  !trad pra inglês: oi", WHITE),
-            ("  !letra Imagine - Beatles", WHITE),
-            ("  !url <link> · !qr <texto>", WHITE),
-            ("  joga dado · d20", WHITE),
+            ("📜 Memória",  TEAL),
+            ("  adiciona missão na lista", WHITE),
+            ("  minhas tarefas · feito 2", WHITE),
+            ("  anota: texto", WHITE),
+            ("  minhas anotações", WHITE),
             ("", None),
-            ("💻 Zonai",  TEAL),
-            ("  cpu · ram · tira print", WHITE),
-            ("  abre spotify · volume 50", WHITE),
+            ("🔱 Dono",  TEAL),
+            ("  menu admin", WHITE),
         ]
 
         y0 = 180
@@ -127,66 +124,76 @@ async def handle(ctx: MessageContext):
     nome  = ctx.pushname or "aventureiro"
 
     # Cabeçalho com saudação personalizada
-    header = (
+    admin_mode = ctx.args_text.strip().lower() in {"admin", "adm", "dono"}
+
+    if admin_mode and not owner:
+        await ctx.reply("🔒 Esse menu é só do dono.")
+        return
+
+    if admin_mode:
+        header = (
+            f"🔱 *MENU ADMIN — HYRULE*\n"
+            f"_Comandos restritos ao dono:_\n"
+            f"{'▬' * 18}"
+        )
+        secoes = [
+            ("🔐", "*ACESSO*", [
+                "`!acesso pendentes`",
+                "`!acesso lista`",
+                "`!acesso add [número/ID]`",
+                "`!acesso del [número/ID]`",
+                "`!acesso codigo [ID] [codigo]`",
+            ]),
+            ("⚔️", "*AGENTES*", [
+                "`!triforce <pedido>`",
+                "`!majora <pedido>`",
+                "`!mastersword <pedido>`",
+            ]),
+            ("🖥️", "*PC*", [
+                "abre <programa>",
+                "volume 50",
+                "tira print",
+                "cpu · ram · info técnica",
+            ]),
+            ("🧭", "*SISTEMA*", [
+                "`!dono`",
+                "ping · status",
+            ]),
+        ]
+    else:
+        header = (
         f"⚔️ *LINK — HERÓI DE HYRULE* ⚔️\n"
         f"_Olá, {nome}! Seu pergaminho de comandos:_\n"
         f"{'▬' * 18}"
-    )
+        )
 
-    secoes = [
-        ("⏰", "*PERGAMINHOS DO TEMPO*", [
-            "`!lembra` daqui 30min de X",
-            "`!lembra` todo dia 22h de X",
-            "`!lembra` toda segunda 9h de X",
-            "meus lembretes · cancela lembrete 3",
-        ]),
-        ("🗺️", "*CONSULTAR O REINO*", [
-            "`!clima` Porto Alegre",
-            "`!cotacao` dólar · euro · bitcoin",
-            "`!cep` 01310100",
-            "`!hora` Tóquio",
-            "`!news` · `!news` tecnologia",
-        ]),
-        ("🎨", "*FORJA DE RUNAS*", [
-            "`!fig`  _— envia a imagem junto_",
-            "guarda no baú  _— envia a mídia_",
-            "meu baú",
-        ]),
-        ("📜", "*DIÁRIO DO AVENTUREIRO*", [
-            "adiciona <missão> na lista",
-            "minhas tarefas · feito 2 · remove tarefa 2",
-            "anota: <texto> · minhas anotações",
-        ]),
-        ("🧰", "*RELÍQUIAS DO HERÓI*", [
-            "`!calc` 150 * 38",
-            "converte 10km em milhas",
-            "`!trad` pra inglês: bom dia",
-            "`!letra` Imagine - John Lennon",
-            "`!url` <link> · `!qr` <texto>",
-            "joga dado · d20 · cara ou coroa",
-            "sorteia entre A, B, C · gera senha 16",
-        ]),
-        ("🌿", "*ESPÍRITO DE HYRULE*", [
-            "achei um korok! · quantos koroks",
-            "frase épica · citação aleatória",
-        ]),
-        ("💻", "*ZONAI CONSTRUCTS*", [
-            "abre spotify · volume 50 · tira print",
-            "cpu · ram · info técnica",
-        ]),
-        ("⚙️", "*PURAH PAD — SISTEMA*", [
-            "ping · `!status` · info técnica",
-        ]),
-    ]
-
-    if owner:
-        secoes.append(("🔱", "*TRIFORCE — ADMIN*", [
-            "`!acesso` lista / add / del",
-            "`!triforce` <pedido ao Claude>",
-            "`!majora` <pedido ao Codex>",
-            "`!mastersword` <pedido ao OpenCode>",
-            "`!dono`",
-        ]))
+        secoes = [
+            ("⏰", "*LEMBRETES*", [
+                "me lembra daqui 30min de X",
+                "me lembra todo dia 22h de X",
+                "meus lembretes · cancela lembrete 3",
+            ]),
+            ("🎨", "*MÍDIA*", [
+                "!img <prompt>  _— cria imagem_",
+                "busca uma foto/imagem na web",
+                "guarda no baú  _— envia a mídia_",
+                "meu baú",
+                "manda pro discord  _— envia a mídia_",
+            ]),
+            ("📜", "*MEMÓRIA*", [
+                "adiciona <missão> na lista",
+                "minhas tarefas · feito 2 · remove tarefa 2",
+                "anota: <texto> · minhas anotações",
+            ]),
+            ("🌿", "*HYRULE*", [
+                "achei um korok! · quantos koroks",
+                "frase épica · citação aleatória",
+            ]),
+        ]
+        if owner:
+            secoes.append(("🔱", "*DONO*", [
+                "`menu admin`",
+            ]))
 
     linhas = [header, ""]
     for emoji, titulo, cmds in secoes:
@@ -209,10 +216,10 @@ async def handle(ctx: MessageContext):
     if not MENU_IMG.exists():
         _gerar_imagem()
 
+    await ctx.reply(texto)
+
     if MENU_IMG.exists():
-        await ctx.send_image(str(MENU_IMG), caption=texto)
-    else:
-        await ctx.reply(texto)
+        await ctx.send_image(str(MENU_IMG))
 
 
 SKILL = Skill(

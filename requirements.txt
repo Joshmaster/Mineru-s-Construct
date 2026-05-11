@@ -15,9 +15,15 @@ httpx>=0.27.0
 # Web server (API local do bot)
 flask>=3.0.0
 
-# WhatsApp
-neonize>=0.1.0
+# WhatsApp (bridge HTTP client)
+httpx>=0.27.0
 
-# QR code
+# Webhook server
+aiohttp>=3.9.0
+
+# QR code (usado em outros lugares)
 qrcode>=7.4.2
 segno>=1.6.1
+
+# Imagens dos lembretes
+Pillow>=10.0.0

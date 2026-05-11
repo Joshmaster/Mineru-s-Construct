@@ -31,3 +31,7 @@ WA_ALLOW_FROM = [
     "DDI_DDD_NUMERO_1",
     "DDI_DDD_NUMERO_2",
 ]
+
+# Discord — ID do canal de grupo onde lembretes serão disparados (0 = usa DM)
+# Para pegar o ID: Discord > Modo desenvolvedor > botão direito no canal > Copiar ID
+DISCORD_REMINDER_CHANNEL_ID = 0

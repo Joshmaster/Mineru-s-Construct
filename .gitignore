@@ -13,11 +13,18 @@ link-bot/.linkbot/data.db
 link-bot/.linkbot/qr.png
 link-bot/.whatsapp_pid
 
+# ── WhatsApp Bridge (Baileys Node.js) ────────────────────────────────────────
+whatsapp-bridge/node_modules/
+whatsapp-bridge/auth/
+whatsapp-bridge/.bridge_pid
+whatsapp-bridge/bridge.log
+
 # ── Estado de runtime ─────────────────────────────────────────────────────────
 claude_queue.json
 codex_queue.json
 mastersword_queue.json
 whatsapp_tasks.json
+DISCORD/reminders.json
 pedidos_vistos.json
 nav_state.json
 token_usage.json

@@ -1007,6 +1007,16 @@ def executar_pedido(pedido: str, usuario: str = "OWNER") -> str | None:
     p = pedido.lower()
     pn = _normalizar(pedido)
 
+    if any(x in p for x in ["{url}", "{nome}", "{filename}", "{caminho}", "{usuario}"]):
+        return None
+    if _re.search(r"\{[^{}]+\}", pedido or ""):
+        return None
+    if any(x in pn for x in [
+        "aguarda", "aguarde", "espera", "espere", "nao mande", "nao envia",
+        "deixa pra la", "sem acao", "instrucoes sobre o arquivo",
+    ]):
+        return None
+
     # ── Navegação de pastas ───────────────────────────────────────────────────
 
     # ── !Link acorde — reset completo do sistema ─────────────────────────────

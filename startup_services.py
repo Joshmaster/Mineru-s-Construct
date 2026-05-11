@@ -44,6 +44,13 @@ WHATSAPP_SCRIPT     = WHATSAPP_DIR / "bot" / "main.py"
 WHATSAPP_PID_FILE   = WHATSAPP_DIR / ".whatsapp_pid"
 WHATSAPP_LOG        = WHATSAPP_DIR / "whatsapp.log"
 
+# WhatsApp Bridge (Baileys Node.js)
+BRIDGE_DIR          = BASE / "whatsapp-bridge"
+BRIDGE_SCRIPT       = BRIDGE_DIR / "index.js"
+BRIDGE_PID_FILE     = BRIDGE_DIR / ".bridge_pid"
+BRIDGE_LOG          = BRIDGE_DIR / "bridge.log"
+BRIDGE_PORT         = 7334
+
 # TRIFORCE daemon
 TRIFORCE_DAEMON_SCRIPT  = BASE / "triforce_daemon.py"
 TRIFORCE_DAEMON_PID     = BASE / ".triforce_daemon_pid"
@@ -190,6 +197,11 @@ def _ler_pid(path: Path) -> int | None:
 
 # ── Verificar se serviço está rodando ────────────────────────────────────────
 
+def _bridge_rodando() -> bool:
+    pid = _ler_pid(BRIDGE_PID_FILE)
+    return bool(pid) and _pid_ativo(pid) and _porta_ativa(BRIDGE_PORT)
+
+
 def _whatsapp_rodando() -> bool:
     pid = _ler_pid(WHATSAPP_PID_FILE)
     return bool(pid) and _pid_ativo(pid)
@@ -237,6 +249,33 @@ def parar_supervisor():
     if pid:
         _matar_pid(pid)
     SUPERVISOR_PID_FILE.unlink(missing_ok=True)
+
+
+def parar_bridge():
+    print("Parando WhatsApp Bridge (Baileys)...")
+    # Mata processo node rodando o bridge
+    try:
+        if _WIN:
+            r = subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 f"Get-CimInstance Win32_Process | Where-Object {{ $_.Name -eq 'node.exe' -and $_.CommandLine -like '*whatsapp-bridge*' }} | Select-Object -ExpandProperty ProcessId"],
+                capture_output=True, text=True, timeout=10
+            )
+        else:
+            r = subprocess.run(["pgrep", "-f", "whatsapp-bridge"], capture_output=True, text=True, timeout=10)
+        pids = [int(p.strip()) for p in r.stdout.splitlines() if p.strip().isdigit()]
+        for pid in pids:
+            _matar_pid(pid)
+    except Exception:
+        pass
+    pid = _ler_pid(BRIDGE_PID_FILE)
+    if pid:
+        _matar_pid(pid)
+    BRIDGE_PID_FILE.unlink(missing_ok=True)
+    for _ in range(10):
+        if _porta_livre(BRIDGE_PORT):
+            break
+        time.sleep(0.5)
 
 
 def parar_whatsapp():
@@ -329,6 +368,33 @@ def iniciar_supervisor():
     return True
 
 
+def iniciar_bridge():
+    if not BRIDGE_SCRIPT.exists():
+        print(f"  ⚠️  Bridge não encontrado em {BRIDGE_SCRIPT}. Rode: cd whatsapp-bridge && npm install")
+        return False
+    node = shutil.which("node")
+    if not node:
+        print("  ⚠️  Node.js não encontrado no PATH.")
+        return False
+    print("Iniciando WhatsApp Bridge (Baileys)...")
+    proc = _spawn(
+        [node, str(BRIDGE_SCRIPT)],
+        BRIDGE_DIR,
+        BRIDGE_LOG,
+        BRIDGE_PID_FILE,
+    )
+    print(f"  PID {proc.pid}")
+    # Aguarda porta subir (até 15s)
+    for i in range(30):
+        time.sleep(0.5)
+        if _porta_ativa(BRIDGE_PORT):
+            print(f"  porta {BRIDGE_PORT} online ✓ ({(i+1)*0.5:.1f}s)")
+            print(f"  QR disponível em: http://localhost:{BRIDGE_PORT}/qr")
+            return True
+    print(f"  aviso: bridge não abriu porta {BRIDGE_PORT} em 15s")
+    return False
+
+
 def iniciar_whatsapp():
     print("Iniciando WhatsApp bot...")
     err_log = WHATSAPP_DIR / ".linkbot" / "whatsapp_err.log"
@@ -343,7 +409,7 @@ def iniciar_whatsapp():
     print(f"  PID {proc.pid}")
     time.sleep(3)
     try:
-        linha = open(err_log.name, encoding="utf-8", errors="replace").read().strip()
+        linha = open(err_log.name if hasattr(err_log, 'name') else str(err_log), encoding="utf-8", errors="replace").read().strip()
         if linha:
             print(f"  {linha.splitlines()[-1]}")
     except Exception:
@@ -463,6 +529,12 @@ def cmd_start():
     else:
         iniciar_supervisor()
 
+    # Bridge deve subir antes do bot WhatsApp
+    if _bridge_rodando():
+        print(f"WhatsApp Bridge já rodando (PID {_ler_pid(BRIDGE_PID_FILE)}).")
+    else:
+        iniciar_bridge()
+
     if _whatsapp_rodando():
         print("WhatsApp bot já está rodando.")
     else:
@@ -489,6 +561,7 @@ def cmd_restart(limpar: bool = True):
     parar_bot()
     parar_supervisor()
     parar_whatsapp()
+    parar_bridge()
     parar_triforce_daemon()
     parar_majora()
     parar_mastersword()
@@ -499,6 +572,7 @@ def cmd_restart(limpar: bool = True):
     iniciar_proxy()
     iniciar_bot()
     iniciar_supervisor()
+    iniciar_bridge()      # bridge antes do bot WA
     iniciar_whatsapp()
     iniciar_triforce_daemon()
     iniciar_majora()
@@ -511,6 +585,7 @@ def cmd_stop():
     parar_bot()
     parar_supervisor()
     parar_whatsapp()
+    parar_bridge()
     parar_triforce_daemon()
     parar_majora()
     parar_mastersword()
@@ -528,6 +603,7 @@ def cmd_status():
     sup_ok = bool(pid_sup) and _pid_ativo(pid_sup)
     print(f"Supervisor:   {'● rodando' if sup_ok else '○ parado'}")
 
+    print(f"WA Bridge:    {'● rodando' if _bridge_rodando() else '○ parado'} (porta {BRIDGE_PORT})")
     print(f"WhatsApp bot: {'● rodando' if _whatsapp_rodando() else '○ parado'}")
     print(f"FFmpeg:       {'● instalado' if _ffmpeg_disponivel() else '○ ausente'}")
 

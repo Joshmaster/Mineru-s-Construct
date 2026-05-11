@@ -8,6 +8,7 @@ import threading
 import aiohttp as aiohttp_client
 from datetime import datetime, timedelta, timezone
 from aiohttp import web
+from zoneinfo import ZoneInfo
 
 _log_lock = threading.Lock()
 
@@ -23,10 +24,12 @@ from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).parent.parent))
 try:
     from hyrule_env import DISCORD_TOKEN as TOKEN, OPENROUTER_KEYS, GROQ_KEYS
+    from hyrule_env import DISCORD_REMINDER_CHANNEL_ID as _REMINDER_CH_ID
 except ImportError:
     TOKEN = ""
     OPENROUTER_KEYS = []
     GROQ_KEYS = []
+    _REMINDER_CH_ID = 0
 
 OLLAMA_URL   = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "qwen3:8b"
@@ -50,10 +53,12 @@ BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE      = os.path.join(BASE_DIR, "discord.log")
 FILES_DIR     = os.path.join(BASE_DIR, "files")
 HISTORY_DIR   = os.path.join(BASE_DIR, "history")
+REMINDERS_FILE = os.path.join(BASE_DIR, "reminders.json")
 RECEIVED_DIR  = os.path.join(BASE_DIR, "received")   # anexos recebidos do Discord, baixados imediatamente
 RECEIVED_META = os.path.join(BASE_DIR, "received_files.json")   # metadados persistidos
 USER_CTX_FILE = os.path.join(BASE_DIR, "user_context.json")     # contexto por usuário
 PERSONA_FILE  = os.path.join(BASE_DIR, "..", "OPENCODE", "roaming", "LINK_PERSONA.md")
+BANNER_FILE   = os.path.join(BASE_DIR, "..", "assets", "banner.jpg")
 os.makedirs(FILES_DIR, exist_ok=True)
 os.makedirs(HISTORY_DIR, exist_ok=True)
 os.makedirs(RECEIVED_DIR, exist_ok=True)
@@ -66,6 +71,37 @@ historico_ia = {}
 # ── Contexto persistente por usuário ─────────────────────────────────────────
 # Estrutura: {autor: {last_file: {local_path, nome}, last_pedido: str, last_action: str}}
 _user_ctx: dict[str, dict] = {}
+
+LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
+_reminders_lock = asyncio.Lock()
+_reminder_task: asyncio.Task | None = None
+
+# Lembretes aguardando confirmação por reação: {msg_id: {text, channel_id, next_retry, retry_count}}
+_pending_ack: dict[int, dict] = {}
+_pending_ack_lock = asyncio.Lock()
+REMINDER_RETRY_SECS = 15 * 60
+
+_sys.path.insert(0, os.path.join(os.path.dirname(BASE_DIR), "link-bot"))
+try:
+    from bot.core.timeparse import (
+        parse_time_expression,
+        format_timestamp,
+        humanize_recurrence,
+        next_recurrence,
+    )
+    from bot.core.reminder_art import (
+        plain_reminder_text,
+        reminder_caption,
+        render_reminder_card,
+    )
+except Exception:
+    parse_time_expression = None
+    format_timestamp = None
+    humanize_recurrence = None
+    next_recurrence = None
+    plain_reminder_text = None
+    reminder_caption = None
+    render_reminder_card = None
 
 
 def _carregar_ctx():
@@ -92,6 +128,244 @@ def _get_ctx(autor: str) -> dict:
     return _user_ctx.get(autor, {})
 
 _carregar_ctx()  # carrega ao iniciar
+
+
+# ── Lembretes Discord ────────────────────────────────────────────────────────
+def _carregar_lembretes() -> dict:
+    if os.path.exists(REMINDERS_FILE):
+        try:
+            with open(REMINDERS_FILE, encoding="utf-8") as f:
+                data = json.load(f)
+            if isinstance(data, dict):
+                data.setdefault("next_id", 1)
+                data.setdefault("items", [])
+                return data
+        except Exception:
+            pass
+    return {"next_id": 1, "items": []}
+
+
+def _salvar_lembretes(data: dict):
+    tmp = f"{REMINDERS_FILE}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
+    os.replace(tmp, REMINDERS_FILE)
+
+
+def _limpar_texto_lembrete(args: str) -> str:
+    text = args or ""
+    patterns = [
+        r"daqui\s+\d+\s*(?:minutos?|min|m|horas?|h|dias?|d)\b",
+        r"em\s+\d+\s*(?:minutos?|min|m|horas?|h)\b",
+        r"todo\s+dia",
+        r"todos\s+os\s+dias",
+        r"diariamente",
+        r"toda\s+(?:segunda|terca|terça|quarta|quinta|sexta|sabado|sábado|domingo)",
+        r"amanha",
+        r"amanhã",
+        r"hoje",
+        r"\d{1,2}[h:]\d{2}",
+        r"\d{1,2}\s*h(?:oras?)?",
+        r"as?\s+\d{1,2}",
+        r"^de\s+",
+        r"^que\s+",
+    ]
+    for pat in patterns:
+        text = re.sub(pat, "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\s+", " ", text).strip(" ,.")
+    return text or "(sem descrição)"
+
+
+async def _adicionar_lembrete_discord(user: discord.User, args: str) -> str:
+    if parse_time_expression is None:
+        return "não consegui carregar o parser de tempo agora"
+    if not args.strip():
+        return "marca como? exemplo: `me lembra daqui 30 minutos de beber agua`"
+
+    parsed = parse_time_expression(args)
+    if parsed is None:
+        return "não entendi quando. tenta `daqui 30 minutos`, `amanhã às 8` ou `todo dia 22h`"
+
+    trigger_at, recurrence = parsed
+    text = _limpar_texto_lembrete(args)
+
+    async with _reminders_lock:
+        data = _carregar_lembretes()
+        rid = int(data.get("next_id", 1))
+        data["next_id"] = rid + 1
+        data["items"].append({
+            "id": rid,
+            "user_id": int(user.id),
+            "username": user.name,
+            "text": text,
+            "trigger_at": int(trigger_at),
+            "recurrence": recurrence or "",
+            "sent": False,
+            "created_at": int(datetime.now(LOCAL_TZ).timestamp()),
+        })
+        _salvar_lembretes(data)
+
+    quando = format_timestamp(trigger_at) if format_timestamp else str(trigger_at)
+    extra = ""
+    if recurrence and humanize_recurrence:
+        extra = f"\nrecorrente: {humanize_recurrence(recurrence)}"
+    return f"marcado: {quando}\n{text}\n#{rid}{extra}"
+
+
+async def _listar_lembretes_discord(user: discord.User) -> str:
+    async with _reminders_lock:
+        data = _carregar_lembretes()
+        items = [
+            r for r in data.get("items", [])
+            if int(r.get("user_id", 0)) == int(user.id) and not r.get("sent")
+        ]
+    if not items:
+        return "nenhum lembrete marcado"
+
+    linhas = ["teus lembretes:"]
+    for r in sorted(items, key=lambda x: int(x.get("trigger_at", 0)))[:20]:
+        trigger_at = int(r.get("trigger_at", 0))
+        quando = format_timestamp(trigger_at) if format_timestamp else str(trigger_at)
+        rec = ""
+        if r.get("recurrence") and humanize_recurrence:
+            rec = f" - {humanize_recurrence(r['recurrence'])}"
+        linhas.append(f"#{r['id']} - {quando}{rec}: {r['text']}")
+    return "\n".join(linhas)
+
+
+async def _cancelar_lembrete_discord(user: discord.User, text: str) -> str:
+    m = re.search(r"\d+", text or "")
+    if not m:
+        return "qual número? exemplo: `cancela lembrete 3`"
+    rid = int(m.group(0))
+    async with _reminders_lock:
+        data = _carregar_lembretes()
+        before = len(data.get("items", []))
+        data["items"] = [
+            r for r in data.get("items", [])
+            if not (int(r.get("id", 0)) == rid and int(r.get("user_id", 0)) == int(user.id))
+        ]
+        removed = before - len(data["items"])
+        if removed:
+            _salvar_lembretes(data)
+    if removed:
+        return f"lembrete #{rid} cancelado"
+    return f"não achei o lembrete #{rid}"
+
+
+async def _tratar_lembrete_discord(message: discord.Message, texto_norm: str) -> bool:
+    texto = (message.content or "").strip()
+    if re.search(r"\b(?:meus lembretes|lista lembretes|lembretes ativos|ver lembretes)\b", texto_norm):
+        resposta = await _listar_lembretes_discord(message.author)
+    elif re.search(r"\b(?:cancela|cancelar|apaga|apagar|remove|remover)\s+lembrete\b", texto_norm):
+        resposta = await _cancelar_lembrete_discord(message.author, texto)
+    elif re.match(r"^!?\s*(?:me lembra|lembra de|lembrar|agenda|agendar)\b", texto_norm):
+        if re.search(r"\blembra de mim\b|\bse lembra de mim\b", texto_norm):
+            return False
+        args = re.sub(r"^!?\s*(?:me lembra|lembra de|lembrar|agenda|agendar)\s*", "", texto, flags=re.IGNORECASE).strip()
+        resposta = await _adicionar_lembrete_discord(message.author, args)
+    else:
+        return False
+
+    await message.channel.send(resposta)
+    registrar("OUT", "Link", message.author.name, resposta)
+    return True
+
+
+async def _enviar_reminder_discord(r: dict, msg_text: str, retry_count: int = 0) -> int | None:
+    """Envia lembrete no canal configurado ou DM. Retorna message ID ou None."""
+    reminder_ch = int(_REMINDER_CH_ID) if _REMINDER_CH_ID else 0
+    image_path = None
+    sent_msg = None
+    try:
+        if render_reminder_card and reminder_caption and retry_count == 0:
+            image_path = render_reminder_card(r)
+            content = reminder_caption(r)
+        else:
+            content = msg_text
+            image_path = None
+
+        if reminder_ch:
+            channel = client.get_channel(reminder_ch) or await client.fetch_channel(reminder_ch)
+            if image_path:
+                sent_msg = await channel.send(content=content, file=discord.File(image_path))
+            else:
+                sent_msg = await channel.send(content)
+            registrar("OUT", "Link", f"#canal:{reminder_ch}", content)
+        else:
+            user = await client.fetch_user(int(r["user_id"]))
+            if image_path:
+                sent_msg = await user.send(content=content, file=discord.File(image_path))
+            else:
+                sent_msg = await user.send(content)
+            registrar("OUT", "Link", user.name, content)
+    except Exception as e:
+        print(f"[LEMBRETE] falha enviando #{r.get('id')}: {e}", flush=True)
+    finally:
+        if image_path:
+            try:
+                os.remove(image_path)
+            except Exception:
+                pass
+    return sent_msg.id if sent_msg else None
+
+
+async def _loop_lembretes_discord():
+    await client.wait_until_ready()
+    while not client.is_closed():
+        now_ts = int(datetime.now(LOCAL_TZ).timestamp())
+
+        # ── Lembretes novos ──
+        due = []
+        async with _reminders_lock:
+            data = _carregar_lembretes()
+            changed = False
+            for r in data.get("items", []):
+                if not r.get("sent") and int(r.get("trigger_at", 0)) <= now_ts:
+                    due.append(dict(r))
+                    recurrence = r.get("recurrence") or ""
+                    if recurrence and next_recurrence:
+                        nxt = next_recurrence(recurrence)
+                        if nxt:
+                            r["trigger_at"] = int(nxt)
+                        else:
+                            r["sent"] = True
+                    else:
+                        r["sent"] = True
+                    changed = True
+            if changed:
+                _salvar_lembretes(data)
+
+        for r in due:
+            base_text = plain_reminder_text(r) if plain_reminder_text else f"lembrete #{r['id']}: {r['text']}"
+            msg_id = await _enviar_reminder_discord(r, base_text)
+            if msg_id:
+                async with _pending_ack_lock:
+                    _pending_ack[msg_id] = {
+                        'r': r,
+                        'text': base_text,
+                        'next_retry': now_ts + REMINDER_RETRY_SECS,
+                        'retry_count': 0,
+                    }
+
+        # ── Retentativas de lembretes sem confirmação ──
+        async with _pending_ack_lock:
+            to_retry = [
+                (mid, info) for mid, info in list(_pending_ack.items())
+                if info['next_retry'] <= now_ts
+            ]
+
+        for mid, info in to_retry:
+            async with _pending_ack_lock:
+                _pending_ack.pop(mid, None)
+            rc = info['retry_count'] + 1
+            retry_text = f"⏰ (sem confirmação — tentativa {rc})\n{info['text']}"
+            new_id = await _enviar_reminder_discord(info['r'], retry_text, retry_count=rc)
+            if new_id:
+                async with _pending_ack_lock:
+                    _pending_ack[new_id] = {**info, 'next_retry': now_ts + REMINDER_RETRY_SECS, 'retry_count': rc}
+
+        await asyncio.sleep(15)
 
 
 # ── Metadados de arquivos recebidos ──────────────────────────────────────────
@@ -242,6 +516,124 @@ def _nome_display(username: str) -> str:
         if cached and cached.name.lower() == username.lower():
             return nome_extra.capitalize()
     return username
+
+
+def _is_discord_owner(user: discord.User) -> bool:
+    if not user:
+        return False
+    uid = int(user.id)
+    if uid in {int(v) for v in USUARIOS.values() if str(v).isdigit()}:
+        return True
+    extras = carregar_usuarios_extra()
+    owner_ids = {
+        int(v) for k, v in extras.items()
+        if str(v).isdigit() and k.lower() in {"owner", "josh", "josh_barbosa"}
+    }
+    return uid in owner_ids
+
+
+def _menu_texto(secao: str = "principal", owner: bool = False) -> str:
+    if secao == "lembretes":
+        return (
+            "**⏰ Lembretes**\n"
+            "`me lembra daqui 30min de X`\n"
+            "`me lembra todo dia 22h de X`\n"
+            "`meus lembretes`\n"
+            "`cancela lembrete 3`"
+        )
+    if secao == "midia":
+        return (
+            "**🎨 Mídia**\n"
+            "`busca na web uma foto de X e me manda`\n"
+            "`guarda no baú` com mídia\n"
+            "`meu baú`\n"
+            "`envia este arquivo para mim`"
+        )
+    if secao == "memoria":
+        return (
+            "**📜 Memória**\n"
+            "`adiciona <missão> na lista`\n"
+            "`minhas tarefas`\n"
+            "`feito 2`\n"
+            "`anota: <texto>`\n"
+            "`minhas anotações`"
+        )
+    if secao == "hyrule":
+        return (
+            "**🌿 Hyrule**\n"
+            "`achei um korok!`\n"
+            "`quantos koroks`\n"
+            "`frase épica`\n"
+            "`citação aleatória`"
+        )
+    if secao == "admin":
+        return (
+            "**🔱 Admin**\n"
+            "`triforce <pedido>`\n"
+            "`majora <pedido>`\n"
+            "`mastersword <pedido>`\n"
+            "`!link acorda`\n"
+            "`!Z <pedido local rápido>`\n"
+            "`!zpensa <pedido local com tools>`"
+        )
+    texto = (
+        "**⚔️ Link — Menu de Hyrule**\n"
+        "Escolhe uma área pelos botões abaixo.\n\n"
+        "**Disponível:** Lembretes, Mídia, Memória e Hyrule."
+    )
+    if owner:
+        texto += "\n**Dono:** Admin."
+    return texto
+
+
+class MenuView(discord.ui.View):
+    def __init__(self, owner: bool):
+        super().__init__(timeout=180)
+        self.owner = owner
+        self.add_item(MenuSectionButton("Lembretes", "⏰", "lembretes"))
+        self.add_item(MenuSectionButton("Mídia", "🎨", "midia"))
+        self.add_item(MenuSectionButton("Memória", "📜", "memoria"))
+        self.add_item(MenuSectionButton("Hyrule", "🌿", "hyrule"))
+        if owner:
+            self.add_item(AdminMenuButton())
+
+
+class MenuSectionButton(discord.ui.Button):
+    def __init__(self, label: str, emoji: str, secao: str):
+        super().__init__(label=label, emoji=emoji, style=discord.ButtonStyle.secondary)
+        self.secao = secao
+
+    async def callback(self, interaction: discord.Interaction):
+        await interaction.response.send_message(_menu_texto(self.secao), view=MenuView(False))
+
+
+class AdminMenuButton(discord.ui.Button):
+    def __init__(self):
+        super().__init__(label="Admin", emoji="🔱", style=discord.ButtonStyle.danger)
+
+    async def callback(self, interaction: discord.Interaction):
+        if not _is_discord_owner(interaction.user):
+            await interaction.response.send_message("🔒 Esse menu é só do dono.")
+            return
+        await interaction.response.send_message(_menu_texto("admin", owner=True))
+
+
+async def enviar_menu_discord(message: discord.Message, secao: str = "principal"):
+    owner = _is_discord_owner(message.author)
+    if secao == "admin" and not owner:
+        resposta = "🔒 Esse menu é só do dono."
+        await message.channel.send(resposta)
+        registrar("OUT", "Link", message.author.name, resposta)
+        return
+
+    texto = _menu_texto(secao, owner=owner)
+    kwargs = {"content": texto}
+    if secao == "principal":
+        kwargs["view"] = MenuView(owner)
+        if os.path.exists(BANNER_FILE):
+            kwargs["file"] = discord.File(BANNER_FILE, filename="hyrule-menu.jpg")
+    await message.channel.send(**kwargs)
+    registrar("OUT", "Link", message.author.name, f"[MENU:{secao}]")
 
 
 async def responder_com_ia(autor: str, mensagem: str) -> str:
@@ -457,6 +849,8 @@ async def responder_com_ia_local_tools(autor: str, mensagem: str) -> str:
 intents = discord.Intents.default()
 intents.message_content = True
 intents.dm_messages = True
+intents.guild_messages = True
+intents.reactions = True
 
 client = discord.Client(intents=intents)
 
@@ -468,6 +862,32 @@ _MASTERSWORD_RE = re.compile(r'\[MASTERSWORD:\s*(.*?)\]', re.IGNORECASE | re.DOT
 _THINK_RE = re.compile(r'<think>.*?</think>', re.DOTALL | re.IGNORECASE)
 
 # Prefixos que indicam raciocínio interno vazado (modelos de reasoning)
+
+def _pedido_sheikah_executavel(pedido: str) -> bool:
+    """Evita executar placeholders ou respostas conversacionais como tarefa do PC."""
+    p = (pedido or "").strip()
+    if not p:
+        return False
+    p_norm = p.lower()
+    if any(x in p_norm for x in ["{url}", "{nome}", "{filename}", "{caminho}", "{usuario}"]):
+        return False
+    if re.search(r"\{[^{}]+\}", p):
+        return False
+    noops = [
+        "aguarda", "aguarde", "espera", "espere", "não mande", "nao mande",
+        "deixa pra la", "deixa pra lá", "sem ação", "sem acao",
+        "instruções sobre o arquivo", "instrucoes sobre o arquivo",
+    ]
+    if any(x in p_norm for x in noops):
+        return False
+    acoes = [
+        "salva", "salvar", "guardar", "baixar", "baixa", "download",
+        "enviar", "envia", "manda", "apagar", "apaga", "deletar", "deleta",
+        "ler", "le ", "listar", "lista", "abrir", "abre", "fechar", "fecha",
+        "executar", "executa", "rodar", "roda", "escrever", "escreve",
+        "mover", "move", "copiar", "copia",
+    ]
+    return any(a in p_norm for a in acoes)
 _REASON_STARTS = (
     "okay,", "ok,", "ok!", "let me", "first,", "first,", "looking at",
     "i need to", "wait,", "alright,", "so,", "now,", "hmm", "well,",
@@ -560,7 +980,19 @@ async def buscar_user(nome: str):
 
 
 @client.event
+async def on_raw_reaction_add(payload: discord.RawReactionActionEvent):
+    """Qualquer reação numa mensagem de lembrete pendente confirma e cancela retry."""
+    if payload.user_id == client.user.id:
+        return
+    async with _pending_ack_lock:
+        if payload.message_id in _pending_ack:
+            info = _pending_ack.pop(payload.message_id)
+            print(f"[LEMBRETE] confirmado por reação após {info['retry_count']} retentativas", flush=True)
+
+
+@client.event
 async def on_ready():
+    global _reminder_task
     print(f"\n  Link Discord Online")
     print(f"  Bot: {client.user}")
     print(f"  HTTP: http://localhost:7331")
@@ -576,14 +1008,27 @@ async def on_ready():
             print(f"  [cache] {nome} -> {user.name} ({uid})")
         except Exception:
             pass
+    if _reminder_task is None or _reminder_task.done():
+        _reminder_task = asyncio.create_task(_loop_lembretes_discord())
 
 
 @client.event
 async def on_message(message):
     if message.author == client.user:
         return
-    if not isinstance(message.channel, discord.DMChannel):
+
+    is_dm = isinstance(message.channel, discord.DMChannel)
+    is_guild = message.guild is not None
+
+    if not is_dm and not is_guild:
         return
+
+    # Servidor/grupo: só responde a !comando ou @menção direta
+    if is_guild:
+        mentioned = client.user in message.mentions
+        is_cmd = (message.content or "").strip().startswith("!")
+        if not mentioned and not is_cmd:
+            return
 
     autor   = message.author.name
     p_lower = (message.content or "").lower()
@@ -622,6 +1067,17 @@ async def on_message(message):
     # ── TRIFORCE: escalação direta, sem passar pelo LLM ──────────────────────
     _txt = (message.content or "").strip()
     _txt_norm = _p_norm.strip()
+
+    if _txt_norm in {"menu", "ajuda", "help", "comandos", "?"}:
+        await enviar_menu_discord(message)
+        return
+
+    if _txt_norm in {"menu admin", "menu adm", "ajuda admin", "ajuda adm", "comandos admin"}:
+        await enviar_menu_discord(message, secao="admin")
+        return
+
+    if await _tratar_lembrete_discord(message, _txt_norm):
+        return
 
     if re.match(r'^!?\s*zpensa\b', _txt_norm):
         pedido_z = re.sub(r'^!?\s*zpensa\s*', '', _txt, flags=re.IGNORECASE).strip()
@@ -768,8 +1224,11 @@ async def on_message(message):
     claude_match = re.search(r'\[SHEIKAH_SLATE:\s*(.*?)\]', resposta, re.IGNORECASE | re.DOTALL)
     if claude_match:
         pedido = claude_match.group(1).strip()
-        _set_ctx(autor, last_pedido=pedido, last_action="llm")
-        registrar("SYS", "Bot", "Claude", f"[SHEIKAH_SLATE-PEDIDO] {pedido}")
+        if _pedido_sheikah_executavel(pedido):
+            _set_ctx(autor, last_pedido=pedido, last_action="llm")
+            registrar("SYS", "Bot", "Claude", f"[SHEIKAH_SLATE-PEDIDO] {pedido}")
+        else:
+            registrar("SYS", "Bot", "Claude", f"[SHEIKAH_SLATE-IGNORADO] {pedido}")
 
     triforce_match = _TRIFORCE_RE.search(resposta)
     if triforce_match:
