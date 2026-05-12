@@ -146,12 +146,43 @@ def _add_to_history(user: str, role: str, content: str):
 
 # ── HTTP helper ──────────────────────────────────────────────────────────────
 
-def _post(url: str, headers: dict, payload: dict, timeout: int = 20) -> Optional[dict]:
+_cloud_fail: dict[str, int] = {}   # provider → consecutive failures
+_cloud_fail_ts: dict[str, float] = {}
+_CLOUD_SKIP_SECS = 180
+_CLOUD_FAIL_THRESHOLD = 3
+
+
+def _mark_cloud_fail(provider: str):
+    _cloud_fail[provider] = _cloud_fail.get(provider, 0) + 1
+    _cloud_fail_ts[provider] = time.time()
+
+
+def _mark_cloud_ok(provider: str):
+    _cloud_fail[provider] = 0
+
+
+def _cloud_blocked(provider: str) -> bool:
+    n = _cloud_fail.get(provider, 0)
+    if n < _CLOUD_FAIL_THRESHOLD:
+        return False
+    return time.time() - _cloud_fail_ts.get(provider, 0) < _CLOUD_SKIP_SECS
+
+
+_AUTH_ERROR = object()  # sentinel: indica erro 401/403
+
+
+def _post(url: str, headers: dict, payload: dict, timeout: int = 20):
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(url, data=data, headers=headers, method="POST")
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        if e.code in (401, 403):
+            log.warning(f"HTTP {url[:40]} auth error {e.code}")
+            return _AUTH_ERROR
+        log.debug(f"HTTP {url[:40]} falhou {e.code}: {e}")
+        return None
     except Exception as e:
         log.debug(f"HTTP {url[:40]} falhou: {e}")
         return None
@@ -171,6 +202,9 @@ def _strip_thinking(text: str) -> str:
 # ── OpenRouter ───────────────────────────────────────────────────────────────
 
 def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float = 0.85, timeout: int = 20) -> Optional[str]:
+    if _cloud_blocked("openrouter"):
+        log.debug("OpenRouter bloqueado pelo circuit breaker")
+        return None
     for key in OPENROUTER_KEYS:
         for model in OPENROUTER_MODELS:
             headers = {
@@ -187,17 +221,25 @@ def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float =
                 "reasoning": {"enabled": True, "effort": "low", "exclude": True},
             }
             resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload, timeout=timeout)
+            if resp is _AUTH_ERROR:
+                _mark_cloud_fail("openrouter")
+                break  # chave inválida — pula outros modelos desta chave
             if resp:
                 text = _extract_text(resp)
                 if text and text.strip():
                     log.debug(f"OpenRouter ok: {model}")
+                    _mark_cloud_ok("openrouter")
                     return text.strip()
+            _mark_cloud_fail("openrouter")
     return None
 
 
 # ── Groq ─────────────────────────────────────────────────────────────────────
 
 def _call_groq(messages: list, max_tokens: int = 300, temperature: float = 0.85, timeout: int = 20) -> Optional[str]:
+    if _cloud_blocked("groq"):
+        log.debug("Groq bloqueado pelo circuit breaker")
+        return None
     for key in GROQ_KEYS:
         for model in GROQ_MODELS:
             headers = {**GROQ_HEADERS, "Authorization": f"Bearer {key}"}
@@ -208,17 +250,22 @@ def _call_groq(messages: list, max_tokens: int = 300, temperature: float = 0.85,
                 "max_tokens": max_tokens,
             }
             resp = _post("https://api.groq.com/openai/v1/chat/completions", headers, payload, timeout=timeout)
+            if resp is _AUTH_ERROR:
+                _mark_cloud_fail("groq")
+                break  # chave inválida — pula outros modelos desta chave
             if resp:
                 text = _extract_text(resp)
                 if text and text.strip():
                     log.debug(f"Groq ok: {model}")
+                    _mark_cloud_ok("groq")
                     return text.strip()
+            _mark_cloud_fail("groq")
     return None
 
 
 # ── Ollama local ─────────────────────────────────────────────────────────────
 
-def _call_ollama(messages: list, think: bool = True, num_predict: int = 120, temperature: float = 0.8, timeout: int = 90) -> Optional[str]:
+def _call_ollama(messages: list, think: bool = False, num_predict: int = 100, temperature: float = 0.8, timeout: int = 90) -> Optional[str]:
     payload = {
         "model": OLLAMA_MODEL,
         "messages": messages,
@@ -255,27 +302,43 @@ def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
     if not message or not skills:
         return None
 
-    catalog = "\n".join(
+    # Para Ollama: catalogo só com nomes (sem descrições) para reduzir o contexto
+    catalog_full = "\n".join(
         f"- {item['name']}: {item.get('description', '')}"
         for item in skills
         if item.get("name")
     )
-    system = (
+    catalog_short = "\n".join(
+        f"- {item['name']}"
+        for item in skills
+        if item.get("name")
+    )
+    system_full = (
         "Voce e um classificador de intencao para um bot WhatsApp.\n"
         "Escolha uma skill SOMENTE quando a mensagem pede claramente uma acao dessa skill.\n"
         "Se for conversa, pergunta pessoal, brincadeira, memoria, saudacao ou ambigua, use null.\n"
         "Nao acione lembrete quando a pessoa disser 'lembra de mim' ou estiver perguntando se voce a conhece.\n"
         "Responda apenas JSON valido no formato: {\"skill\": string|null, \"args\": string}.\n\n"
-        f"Skills disponiveis:\n{catalog}"
+        f"Skills disponiveis:\n{catalog_full}"
     )
-    messages = [
-        {"role": "system", "content": system},
+    system_short = (
+        "Classificador de intencao WhatsApp.\n"
+        "Retorne APENAS JSON: {\"skill\": string|null, \"args\": string}.\n"
+        "Use null se for conversa, saudacao ou ambiguo.\n\n"
+        f"Skills:\n{catalog_short}"
+    )
+    messages_full = [
+        {"role": "system", "content": system_full},
+        {"role": "user", "content": message},
+    ]
+    messages_short = [
+        {"role": "system", "content": system_short},
         {"role": "user", "content": message},
     ]
     raw = (
-        _call_openrouter(messages, max_tokens=80, temperature=0.0)
-        or _call_groq(messages, max_tokens=80, temperature=0.0)
-        or _call_ollama(messages, think=False, num_predict=80, temperature=0.0)
+        _call_openrouter(messages_full, max_tokens=80, temperature=0.0)
+        or _call_groq(messages_full, max_tokens=80, temperature=0.0)
+        or _call_ollama(messages_short, think=False, num_predict=60, temperature=0.0, timeout=25)
     )
     data = _json_from_text(raw or "")
     if not isinstance(data, dict):
@@ -310,7 +373,7 @@ def extract_image_query(message: str, usuario: str = "") -> str | None:
     raw = (
         _call_openrouter(messages, max_tokens=60, temperature=0.0)
         or _call_groq(messages, max_tokens=60, temperature=0.0)
-        or _call_ollama(messages, think=False, num_predict=60, temperature=0.0)
+        or _call_ollama(messages, think=False, num_predict=60, temperature=0.0, timeout=20)
     )
     data = _json_from_text(raw or "")
     query = str((data or {}).get("query") or "").strip()
@@ -371,7 +434,9 @@ def choose_reaction_emoji(
             "reasoning": {"enabled": True, "effort": "low", "exclude": True},
         }
         resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload, timeout=5)
-        return _extract_text(resp or {}) if resp else None
+        if resp is _AUTH_ERROR or not resp:
+            return None
+        return _extract_text(resp)
 
     def _groq_fast() -> str | None:
         if not GROQ_KEYS or not GROQ_MODELS:
@@ -384,7 +449,9 @@ def choose_reaction_emoji(
             "max_tokens": 8,
         }
         resp = _post("https://api.groq.com/openai/v1/chat/completions", headers, payload, timeout=5)
-        return _extract_text(resp or {}) if resp else None
+        if resp is _AUTH_ERROR or not resp:
+            return None
+        return _extract_text(resp)
 
     raw = (
         _openrouter_fast()
@@ -499,9 +566,16 @@ def chat(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
         )
     messages = [{"role": "system", "content": system}] + _get_history(user_id)
 
-    raw_reply = _call_openrouter(messages) or _call_groq(messages) or _call_ollama(messages, think=True)
+    raw_reply = _call_openrouter(messages) or _call_groq(messages)
     if not raw_reply:
-        raw_reply = _call_ollama(messages, think=False)
+        # Ollama local: usa persona compacta + últimas 4 msgs para caber no timeout
+        owner_name = _owner_name()
+        sys_local = (
+            f"Voce e Link, parceiro do {owner_name}. Responda em portugues, curto e direto. "
+            "Nunca se identifique como IA ou bot." + _PERSONA_WHATSAPP_ADDON
+        )
+        msgs_local = [{"role": "system", "content": sys_local}] + _get_history(user_id)[-4:]
+        raw_reply = _call_ollama(msgs_local, think=False, num_predict=80, timeout=60)
 
     if not raw_reply:
         raw_reply = "🌀"

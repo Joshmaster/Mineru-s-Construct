@@ -188,6 +188,13 @@ app.get("/qr", async (req, res) => {
     res.send(`<html><body style="display:flex;flex-direction:column;align-items:center;font-family:sans-serif"><h2>Escanear QR — Link Bot</h2><img src="${img}" style="width:300px"><p>Abra o WhatsApp → Dispositivos vinculados → Vincular dispositivo</p></body></html>`);
 });
 
+app.get("/qr/text", (req, res) => {
+    if (!qrString) {
+        return res.status(404).json({ ok: false, error: "no qr" });
+    }
+    res.json({ ok: true, qr: qrString });
+});
+
 app.post("/send/text", requireConnected, async (req, res) => {
     const { jid, text } = req.body;
     if (!jid || text == null) return res.status(400).json({ ok: false, error: "jid e text obrigatórios" });

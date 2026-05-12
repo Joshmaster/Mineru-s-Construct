@@ -11,7 +11,7 @@ REACOES = [
     "🍃 Você tem olho de aventureiro de verdade, parceiro.",
     "🌳 Mais uma sementinha. Daqui a pouco a Hestu maraca encheu!",
     "🌿 *YA-HA-HA!* Korok escondido descoberto.",
-    "🍂 Bem visto, OWNER. Os Koroks são craques em se esconder.",
+    "🍂 Bem visto, parceiro. Os Koroks são craques em se esconder.",
 ]
 
 MARCOS = {

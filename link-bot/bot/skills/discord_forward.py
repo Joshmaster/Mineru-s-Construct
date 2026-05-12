@@ -15,11 +15,9 @@ DISCORD_API = "http://localhost:7331/send-file"
 
 def _target_from_text(text: str) -> str:
     t = (text or "").lower()
-    if any(x in t for x in ("user2", "ela", "namorada")):
-        return "USER2"
-    if any(x in t for x in ("owner", "dono", "ele", "pra mim", "para mim")):
-        return "OWNER"
-    return "OWNER"
+    if any(x in t for x in ("manu", "ela", "namorada")):
+        return "manu"
+    return "josh"
 
 
 def _kind_label(kind: str | None, path: str) -> str:

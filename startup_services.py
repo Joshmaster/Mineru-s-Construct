@@ -493,7 +493,7 @@ def parar_mastersword():
 # ── Apagar mensagens do Discord (após bot online) ─────────────────────────────
 
 def _apagar_msgs_discord():
-    for usuario in ["OWNER", "USER2"]:
+    for usuario in ["josh", "manu"]:
         try:
             payload = json.dumps({"to": usuario, "count": 100}).encode()
             req = urllib.request.Request(

@@ -24,11 +24,14 @@ from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).parent.parent))
 try:
     from hyrule_env import DISCORD_TOKEN as TOKEN, OPENROUTER_KEYS, GROQ_KEYS
-    from hyrule_env import DISCORD_REMINDER_CHANNEL_ID as _REMINDER_CH_ID
 except ImportError:
     TOKEN = ""
     OPENROUTER_KEYS = []
     GROQ_KEYS = []
+
+try:
+    from hyrule_env import DISCORD_REMINDER_CHANNEL_ID as _REMINDER_CH_ID
+except ImportError:
     _REMINDER_CH_ID = 0
 
 OLLAMA_URL   = "http://localhost:11434/api/chat"
@@ -705,16 +708,21 @@ async def responder_com_ia(autor: str, mensagem: str) -> str:
             tentados += 1
 
     # ── 2. Último recurso: qwen local ────────────────────────────────────────
+    # Usa persona compacta + últimas 4 msgs para caber dentro do timeout
+    msgs_local = [
+        {"role": "system", "content": carregar_persona_local()},
+        *historico_ia[autor][-4:],
+    ]
     try:
         async with aiohttp_client.ClientSession() as session:
             async with session.post(
                 OLLAMA_URL,
                 json={"model": OLLAMA_MODEL, "stream": False,
-                      "think": True,
+                      "think": False,
                       "options": {"temperature": 0.85, "top_p": 0.9,
-                                  "repeat_penalty": 1.1, "num_predict": 120},
-                      "messages": msgs},
-                timeout=aiohttp_client.ClientTimeout(total=180)
+                                  "repeat_penalty": 1.1, "num_predict": 80},
+                      "messages": msgs_local},
+                timeout=aiohttp_client.ClientTimeout(total=90)
             ) as resp:
                 data = await resp.json()
                 resposta = data.get("message", {}).get("content", "").strip()
@@ -724,23 +732,6 @@ async def responder_com_ia(autor: str, mensagem: str) -> str:
                     historico_ia[autor].append({"role": "assistant", "content": resposta})
                     salvar_historico(autor, historico_ia[autor])
                     return resposta
-                async with session.post(
-                    OLLAMA_URL,
-                    json={"model": OLLAMA_MODEL, "stream": False,
-                          "think": False,
-                          "options": {"temperature": 0.85, "top_p": 0.9,
-                                      "repeat_penalty": 1.1, "num_predict": 120},
-                          "messages": msgs},
-                    timeout=aiohttp_client.ClientTimeout(total=90)
-                ) as retry_resp:
-                    retry_data = await retry_resp.json()
-                    resposta = retry_data.get("message", {}).get("content", "").strip()
-                    resposta = re.sub(r'<think>.*?</think>', '', resposta, flags=re.DOTALL | re.IGNORECASE).strip()
-                    if resposta:
-                        print(f"[IA] qwen local (fallback sem think): {resposta[:60]}", flush=True)
-                        historico_ia[autor].append({"role": "assistant", "content": resposta})
-                        salvar_historico(autor, historico_ia[autor])
-                        return resposta
     except Exception as e:
         print(f"[IA] qwen local também falhou: {e}", flush=True)
 
@@ -1465,11 +1456,10 @@ async def rota_delete(request):
         count = data.get("count", None)
         ids   = data.get("ids", None)
 
-        nome_key = resolver_usuario(nome)
-        if not nome_key:
+        user = await buscar_user(nome)
+        if not user:
             return web.json_response({"ok": False, "error": f"Usuario '{nome}' nao encontrado"}, status=404)
 
-        user    = await client.fetch_user(USUARIOS[nome_key])
         channel = await user.create_dm()
 
         deletadas = 0

@@ -105,6 +105,8 @@ DISCORD/files/foto_*.jpg
 DISCORD/files/link_*
 DISCORD/files/comida.jpg
 DISCORD/files/teste.json
+DISCORD/files/qr_*.png
+DISCORD/files/qr_*.jpg
 
 # ── OpenCode (binario e dados de sessao) ─────────────────────────────────────
 OPENCODE/bin/
