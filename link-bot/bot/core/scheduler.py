@@ -14,6 +14,7 @@ from bot.core.reminder_art import (
     plain_reminder_text,
     reminder_caption,
     render_reminder_card,
+    render_starwars_card,
 )
 from bot.core.timeparse import next_recurrence
 
@@ -35,6 +36,8 @@ class ReminderScheduler:
         self.check_interval = check_interval
         self._task = None
         self._running = False
+        self._card_cache: dict[int, str] = {}
+        self._prerendering: set[int] = set()
 
     async def start(self):
         if self._running:
@@ -60,8 +63,37 @@ class ReminderScheduler:
                 log.error(f"Erro no scheduler: {e}")
             await asyncio.sleep(self.check_interval)
 
+    async def _prerender_card(self, rid: int, reminder: dict):
+        try:
+            path = await render_starwars_card(reminder)
+            self._card_cache[rid] = path
+            log.info(f"Card Star Wars pré-renderizado #{rid}")
+        except Exception as e:
+            log.warning(f"Falha ao pré-renderizar #{rid}: {e}")
+        finally:
+            self._prerendering.discard(rid)
+
     async def _tick(self):
         now = int(time.time())
+
+        # Pré-render 5 min antes do disparo
+        upcoming = self.storage.reminder_due(now + 300)
+        due_now_ids = {r["id"] for r in self.storage.reminder_due(now)}
+        upcoming_ids = {r["id"] for r in upcoming}
+
+        for r in upcoming:
+            rid = r["id"]
+            if rid not in due_now_ids and rid not in self._card_cache and rid not in self._prerendering:
+                self._prerendering.add(rid)
+                asyncio.create_task(self._prerender_card(rid, r))
+
+        # Limpa cache de rids removidos da fila
+        for rid in [r for r in list(self._card_cache) if r not in upcoming_ids]:
+            path = self._card_cache.pop(rid, None)
+            if path:
+                try: os.remove(path)
+                except Exception: pass
+
         due = self.storage.reminder_due(now)
 
         for r in due:
@@ -71,11 +103,16 @@ class ReminderScheduler:
             recurrence = r["recurrence"] or ""
             rid = r["id"]
 
-            image_path = None
-            try:
-                image_path = render_reminder_card(r)
-            except Exception as e:
-                log.warning(f"Falha ao gerar card #{rid}: {e}")
+            image_path = self._card_cache.pop(rid, None)
+            if image_path is None:
+                try:
+                    image_path = await render_starwars_card(r)
+                except Exception as e:
+                    log.warning(f"Falha ao gerar card Star Wars #{rid}: {e}")
+                    try:
+                        image_path = render_reminder_card(r)
+                    except Exception:
+                        pass
 
             try:
                 await self.send_fn(user_jid, reminder_caption(r), image_path, send_to=send_to)

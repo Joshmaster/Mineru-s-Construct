@@ -241,25 +241,10 @@ async def handle(ctx: MessageContext):
 
     await ctx.typing()
 
-    path = None
-    info = ""
-
-    # Tenta Meta AI primeiro (sem token)
-    try:
-        from bot.core import meta_ai as _meta_ai
-        if _meta_ai.proxy.configured:
-            path = await _meta_ai.proxy.ask_image(raw, timeout=90)
-            if path:
-                info = "Meta AI"
-    except Exception as e:
-        log.warning(f"Meta AI falhou: {e}")
-
-    # Fallback: OpenRouter
-    if not path:
-        modelo_key, aspect, prompt_clean = _parse_args(raw)
-        path, info = await asyncio.get_event_loop().run_in_executor(
-            None, _gerar_imagem, prompt_clean or raw, modelo_key, aspect
-        )
+    modelo_key, aspect, prompt_clean = _parse_args(raw)
+    path, info = await asyncio.get_event_loop().run_in_executor(
+        None, _gerar_imagem, prompt_clean or raw, modelo_key, aspect
+    )
 
     if not path:
         await ctx.reply(info or "não consegui gerar a imagem agora")

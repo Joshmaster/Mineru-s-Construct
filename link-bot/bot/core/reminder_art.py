@@ -206,19 +206,7 @@ async def render_starwars_card(reminder: dict) -> str:
 
     bg_img = None
 
-    # Tenta Meta AI primeiro (sem token, fundo de qualidade superior)
-    try:
-        from bot.core.meta_ai import proxy as _meta_proxy
-        if _meta_proxy.configured:
-            pt_prompt = random.choice(_SW_PROMPTS_PT)
-            meta_path = await _meta_proxy.ask_image(pt_prompt, timeout=75)
-            if meta_path and os.path.exists(meta_path):
-                bg_img = Image.open(meta_path).convert("RGBA").resize((1080, 1080))
-                os.remove(meta_path)
-    except Exception as e:
-        log.debug(f"Meta AI falhou para reminder card: {e}")
-
-    # Fallback: Pollinations Flux
+    # Fundo via Pollinations Flux
     if bg_img is None:
         try:
             async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:

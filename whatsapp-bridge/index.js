@@ -34,6 +34,7 @@ let sock = null;
 let qrString = null;
 let connected = false;
 let reconnectTimer = null;
+const chatStore = new Map(); // jid → { jid, name }
 
 // ─── WhatsApp connection ─────────────────────────────────────────────────────
 
@@ -51,6 +52,20 @@ async function connectToWhatsApp() {
     });
 
     sock.ev.on("creds.update", saveCreds);
+
+    sock.ev.on("chats.upsert", (chats) => {
+        for (const chat of chats) {
+            chatStore.set(chat.id, { jid: chat.id, name: chat.name || chat.subject || "" });
+        }
+    });
+    sock.ev.on("chats.update", (updates) => {
+        for (const upd of updates) {
+            if (upd.id) {
+                const existing = chatStore.get(upd.id) || { jid: upd.id, name: "" };
+                chatStore.set(upd.id, { ...existing, name: upd.name || upd.subject || existing.name });
+            }
+        }
+    });
 
     // debug: log all events
     const _origEmit = sock.ev.emit.bind(sock.ev);
@@ -85,12 +100,25 @@ async function connectToWhatsApp() {
         }
     });
 
+    // JID do Meta AI — mensagens fromMe=true ou type!=notify precisam ser entregues
+    const META_AI_JID = process.env.META_AI_JID || "718584497008509@s.whatsapp.net";
+
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
         console.log(`messages.upsert type=${type} count=${messages.length}`);
-        if (type !== "notify") return;
 
         for (const msg of messages) {
-            console.log(`msg fromMe=${msg.key.fromMe} jid=${msg.key.remoteJid} hasMsg=${!!msg.message}`);
+            const jid = msg.key.remoteJid || "";
+            const isMetaAI = jid === META_AI_JID || jid.startsWith("718584497008509");
+            const msgKeys = msg.message ? Object.keys(msg.message) : [];
+            console.log(`msg fromMe=${msg.key.fromMe} jid=${jid} hasMsg=${!!msg.message} type=${type} metaAI=${isMetaAI} msgType=${msgKeys.join(',')}`);
+
+            // Entrega mensagens do Meta AI independente de fromMe ou type
+            if (isMetaAI && msg.message) {
+                await deliverMessage(msg);
+                continue;
+            }
+
+            if (type !== "notify") continue;
             if (msg.key.fromMe) continue;
             if (!msg.message) continue;
 
@@ -306,6 +334,11 @@ app.post("/download/media", requireConnected, async (req, res) => {
         console.error(`download/media erro: ${e.message}`);
         res.status(500).json({ ok: false, error: e.message });
     }
+});
+
+app.get("/chats", requireConnected, (req, res) => {
+    const list = Array.from(chatStore.values());
+    res.json({ ok: true, count: list.length, chats: list });
 });
 
 // ─── Start ───────────────────────────────────────────────────────────────────
