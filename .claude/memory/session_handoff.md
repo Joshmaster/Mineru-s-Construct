@@ -43,6 +43,11 @@ type: project
 - Supervisor: rodando
 - Discord bot: rodando
 
+### !figurinha animada — 60fps
+- `bot/core/sticker.py`: attempts list começa em 60fps agora
+- Degrada automaticamente (60→30→15→8fps) se arquivo ultrapassar 500KB
+- Commit: `893fc62`
+
 ## Pendente / próximas ideias
 - `!img` funciona mas depende das chaves OpenRouter (verificar se estão válidas em `hyrule_env.py`)
 - Geração de imagem: pensar em alternativa ao Meta AI (Pollinations já funciona pra cards, pode ser opção pro !img também)
