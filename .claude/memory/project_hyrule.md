@@ -41,6 +41,11 @@ Todos os agentes ficam em `~/Agents/`.
 - "me manda X" sem caminho absoluto → busca na pasta atual
 - Listagem: top 30 por nome, emojis por tipo de arquivo
 
+### Retenção de mídias temporárias
+- WhatsApp inbox (`~/.linkbot/inbox`) e mídias geradas pelo sistema (`~/Agents/.linkbot/reminder_cards`) ficam disponíveis por até 24h
+- `link-bot/bot/main.py` limpa arquivos expirados ao conectar e depois a cada 1h
+- Baú (`~/.linkbot/bau`) é armazenamento manual; só limpa quando OWNER pedir
+
 ### Comando `!Link acorde`
 - Detectado diretamente em `link_discord.py` (sem passar pelo LLM)
 - Supervisor executa: clear-history + delete msgs (OWNER + USER2) + reinicia bot
@@ -62,6 +67,7 @@ Todos os agentes ficam em `~/Agents/`.
 ### MAJORA watcher (`watch_codex_queue.py`)
 - Polling a cada 2s em `codex_queue.json`
 - Usa `codex exec` para pedidos MAJORA
+- Codex CLI instalado via npm global: `@openai/codex` / `codex-cli 0.130.0` (validado em 2026-05-13)
 - Responde no canal do item: Discord (`localhost:7331`) ou WhatsApp (`localhost:7332`)
 - Usa `.majora_processing.lock` para evitar processamento paralelo/recursivo
 - Lock é considerado stale após 15 min ou se o PID morreu

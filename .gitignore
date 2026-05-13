@@ -1,8 +1,27 @@
-# ── Credenciais — NUNCA commitar ─────────────────────────────────────────────
+# ══════════════════════════════════════════════════════════════════════════════
+# REGRA 0 — DADOS SENSÍVEIS NUNCA VÃO PRO GIT. SOMENTE LOCAL.
+# Qualquer token, chave, senha, sessão ou credencial é LOCAL e PRIVADO.
+# Se um arquivo sensível for commitado por engano: revogar o token IMEDIATAMENTE.
+# ══════════════════════════════════════════════════════════════════════════════
 hyrule_env.py
+hyrule_env*.py
 local_secrets/
+secrets/
 *.env
 .env*
+*.key
+*.pem
+*.p12
+*.pfx
+*.token
+*_token.txt
+*_secret.txt
+*credentials*.json
+*credentials*.py
+*password*
+*passwd*
+*apikey*
+*api_key*
 
 # ── Sessoes WhatsApp ──────────────────────────────────────────────────────────
 link-bot/.linkbot/
@@ -17,6 +36,7 @@ link-bot/.whatsapp_pid
 whatsapp-bridge/node_modules/
 whatsapp-bridge/auth/
 whatsapp-bridge/.bridge_pid
+whatsapp-bridge/.whatsapp_pid
 whatsapp-bridge/bridge.log
 
 # ── Estado de runtime ─────────────────────────────────────────────────────────

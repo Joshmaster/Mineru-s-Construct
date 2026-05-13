@@ -68,6 +68,12 @@ for noisy in ("aiohttp", "aiohttp.access"):
 
 log = logging.getLogger("link-bot")
 
+MEDIA_RETENTION_SECONDS = 24 * 60 * 60
+INBOX_DIR = Path.home() / ".linkbot" / "inbox"
+GENERATED_MEDIA_DIRS = [
+    ROOT / ".linkbot" / "reminder_cards",
+]
+
 
 def _norm_text(text: str) -> str:
     return "".join(
@@ -78,6 +84,24 @@ def _norm_text(text: str) -> str:
 
 def _fallback_reaction() -> str:
     return "⚔️"
+
+
+def _cleanup_old_media() -> int:
+    cutoff = time.time() - MEDIA_RETENTION_SECONDS
+    removed = 0
+    for folder in [INBOX_DIR, *GENERATED_MEDIA_DIRS]:
+        if not folder.exists():
+            continue
+        for path in folder.iterdir():
+            if not path.is_file():
+                continue
+            try:
+                if path.stat().st_mtime < cutoff:
+                    path.unlink()
+                    removed += 1
+            except Exception as e:
+                log.warning(f"Não consegui limpar mídia expirada {path}: {e}")
+    return removed
 
 
 def load_config() -> dict:
@@ -176,6 +200,7 @@ class LinkBot:
         # {stanza_id: {text, target_jid_str, next_retry, retry_count}}
         self._pending_reminder_ack: dict[str, dict] = {}
         self._retry_task = None
+        self._media_cleanup_task = None
 
         # Allow/admin list
         self.allow_list = list(access_ctl.allow_keys(config))
@@ -205,6 +230,18 @@ class LinkBot:
         await self.scheduler.start()
         if self._retry_task is None or self._retry_task.done():
             self._retry_task = asyncio.create_task(self._reminder_retry_loop())
+        removed = _cleanup_old_media()
+        if removed:
+            log.info(f"🧹 Mídias temporárias expiradas removidas: {removed}")
+        if self._media_cleanup_task is None or self._media_cleanup_task.done():
+            self._media_cleanup_task = asyncio.create_task(self._media_cleanup_loop())
+
+    async def _media_cleanup_loop(self):
+        while True:
+            await asyncio.sleep(60 * 60)
+            removed = _cleanup_old_media()
+            if removed:
+                log.info(f"🧹 Mídias temporárias expiradas removidas: {removed}")
 
     # ── Lembretes ─────────────────────────────────────────────────────────────
 
@@ -1060,6 +1097,8 @@ class LinkBot:
             await self.scheduler.stop()
             if self._retry_task and not self._retry_task.done():
                 self._retry_task.cancel()
+            if self._media_cleanup_task and not self._media_cleanup_task.done():
+                self._media_cleanup_task.cancel()
             self.storage.close()
             await self.client.close()
 

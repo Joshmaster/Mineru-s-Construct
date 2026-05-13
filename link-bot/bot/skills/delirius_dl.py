@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import re
+import subprocess
 import tempfile
 import time
 import urllib.parse
@@ -21,10 +23,12 @@ import httpx
 
 from bot.core.router import Skill
 from bot.core.context import MessageContext
+from bot.core import llm as _llm
 
 BASE = "https://api.delirius.store"
 TIMEOUT_API = 45   # timeout da chamada à API Delirius
 TIMEOUT_DL  = 90   # timeout do download do arquivo
+log = logging.getLogger("delirius_dl")
 
 # Regex de URLs suportadas — usados tanto aqui quanto em main.py via detect_url()
 _RE_YT      = re.compile(r"https?://(?:www\.)?(?:youtube\.com/(?:watch\?[^\s]*v=|shorts/)|youtu\.be/)[\w\-]+(?:[^\s]*)?")
@@ -35,15 +39,23 @@ _RE_TW      = re.compile(r"https?://(?:www\.)?(?:twitter\.com|x\.com)/\w+/status
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def _get_json(path: str, params: dict, timeout: int = TIMEOUT_API) -> dict | None:
+def _get_json(path: str, params: dict, timeout: int = TIMEOUT_API, attempts: int = 2) -> dict | None:
     """Faz GET na Delirius API e retorna o JSON. Retorna None se falhar."""
     url = f"{BASE}{path}?" + urllib.parse.urlencode(params)
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "HyruleBot/1.0"})
-        with urllib.request.urlopen(req, timeout=timeout) as r:
-            return json.loads(r.read().decode("utf-8"))
-    except Exception:
-        return None
+    headers = {
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/125 Safari/537.36",
+        "Accept": "application/json,text/plain,*/*",
+    }
+    for attempt in range(1, attempts + 1):
+        try:
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except Exception as e:
+            log.warning(f"Delirius {path} falhou tentativa {attempt}/{attempts}: {e}")
+            if attempt < attempts:
+                time.sleep(1)
+    return None
 
 
 def _extract_url(data) -> str | None:
@@ -90,6 +102,144 @@ def _extract_title(data: dict) -> str:
     return ""
 
 
+def _extract_artist(data: dict) -> str:
+    """Extrai artista/autor da resposta Delirius, incluindo dicts aninhados."""
+    if not isinstance(data, dict):
+        return ""
+    for key in ("artist", "artists", "author", "uploader"):
+        val = data.get(key)
+        if isinstance(val, list):
+            val = ", ".join(str(a) for a in val)
+        if isinstance(val, str) and val.strip():
+            return val.strip()
+    for key in ("data", "result", "info"):
+        nested = data.get(key)
+        if isinstance(nested, dict):
+            artist = _extract_artist(nested)
+            if artist:
+                return artist
+    return ""
+
+
+def _spotify_clean_query(query: str) -> str:
+    query = re.sub(r"^(?:link|musica|música|baixar|baixa|manda|mp3)\s+", "", query.strip(), flags=re.IGNORECASE)
+    query = re.sub(r"[._-]+", " ", query)
+    replacements = {
+        r"\bbluesky\b": "blue sky",
+        r"\beletric\b": "electric",
+        r"\belectic\b": "electric",
+        r"\blith\b": "light",
+    }
+    for pattern, repl in replacements.items():
+        query = re.sub(pattern, repl, query, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", query).strip()
+
+
+def _spotify_item_text(item: dict) -> str:
+    if not isinstance(item, dict):
+        return ""
+    parts: list[str] = []
+    for key in ("title", "name", "artist", "artists", "author"):
+        val = item.get(key)
+        if isinstance(val, list):
+            val = " ".join(str(v) for v in val)
+        if isinstance(val, str) and val.strip():
+            parts.append(val)
+    return " ".join(parts).casefold()
+
+
+def _allows_alternate_version(query: str) -> bool:
+    return bool(re.search(
+        r"\b(cover|karaoke|remix|instrumental|sped\s*up|slowed|nightcore|live|ao vivo|acustic[ao]|acoustic|tribute|vers[aã]o)\b",
+        query,
+        re.IGNORECASE,
+    ))
+
+
+def _looks_non_original(item: dict) -> bool:
+    text = _spotify_item_text(item)
+    bad_words = (
+        "cover", "karaoke", "tribute", "remix", "sped up", "slowed",
+        "nightcore", "instrumental", "live", "ao vivo", "version",
+        "versao", "versão", "reimagined",
+    )
+    return any(word in text for word in bad_words)
+
+
+def _youtube_search(query: str, *, prefer_original: bool = True) -> dict | None:
+    query = re.sub(r"\s+", " ", str(query or "")).strip()
+    if not query:
+        return None
+    data = _get_json("/search/ytsearch", {"q": query}, timeout=30, attempts=2)
+    items = (data or {}).get("data")
+    if not isinstance(items, list) or not items:
+        return None
+    candidates = [item for item in items if isinstance(item, dict) and item.get("url")]
+    if not candidates:
+        return None
+    if prefer_original:
+        for item in candidates:
+            if not _looks_non_original(item):
+                return item
+    return candidates[0]
+
+
+def _spotify_search(query: str, *, prefer_original: bool = True) -> dict | None:
+    """Busca uma faixa no Spotify via Delirius e retorna o melhor resultado."""
+    query = _spotify_clean_query(query)
+    if not query:
+        return None
+    data = _get_json("/search/spotify", {"q": query, "limit": 6}, timeout=30, attempts=2)
+    items = (data or {}).get("data")
+    if not isinstance(items, list) or not items:
+        return None
+    candidates = [item for item in items if isinstance(item, dict)]
+    if not candidates:
+        return None
+    if prefer_original:
+        for item in candidates:
+            if not _looks_non_original(item):
+                return item
+    return candidates[0]
+
+
+def _spotify_search_candidates(query: str) -> list[str]:
+    """Gera consultas candidatas para achar melhor a musica que o usuario quis."""
+    clean = _spotify_clean_query(query)
+    candidates: list[str] = []
+    try:
+        candidates.extend(_llm.spotify_search_queries(query))
+    except Exception as e:
+        log.debug(f"LLM spotify_search_queries falhou: {e}")
+    if clean:
+        candidates.append(clean)
+
+    seen: set[str] = set()
+    out: list[str] = []
+    for item in candidates:
+        q = _spotify_clean_query(item)
+        key = q.casefold()
+        if not q or key in seen:
+            continue
+        seen.add(key)
+        out.append(q)
+        if len(out) >= 5:
+            break
+    return out
+
+
+async def _spotify_youtube_fallback(ctx: MessageContext, query: str, *, prefer_original: bool = True) -> bool:
+    """Tenta enviar via YouTube quando o download do Spotify falha."""
+    result = _youtube_search(query, prefer_original=prefer_original)
+    url = (result or {}).get("url")
+    if not url:
+        return False
+    title = (result or {}).get("title") or query
+    log.info(f"Spotify fallback YouTube '{query}' => {title} ({url})")
+    await _yt(ctx, url, "mp3", caption_extra=f"YouTube: {url}")
+    return True
+
+
 async def _baixar(url: str, ext: str) -> str | None:
     """Baixa o arquivo da URL para um arquivo temporário e retorna o caminho local.
     Retorna None se o download falhar ou o servidor responder com erro.
@@ -115,9 +265,39 @@ def _rm(path: str | None):
             pass
 
 
+async def _to_whatsapp_ogg(path: str) -> str | None:
+    """Converte áudio para OGG/Opus estéreo, sem capa/metadata, aceito pelo WhatsApp."""
+    out = Path(tempfile.gettempdir()) / f"hyrule_audio_{int(time.time())}.ogg"
+    cmd = [
+        "ffmpeg", "-y",
+        "-i", path,
+        "-vn",
+        "-map_metadata", "-1",
+        "-ac", "2",
+        "-ar", "48000",
+        "-c:a", "libopus",
+        "-b:a", "64k",
+        str(out),
+    ]
+    try:
+        proc = await asyncio.to_thread(
+            subprocess.run,
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=90,
+        )
+        if proc.returncode == 0 and out.exists() and out.stat().st_size > 0:
+            return str(out)
+        log.warning(f"ffmpeg opus falhou: {proc.stderr[-500:]}")
+    except Exception as e:
+        log.warning(f"ffmpeg opus erro: {e}")
+    return None
+
+
 # ── Handlers por plataforma ───────────────────────────────────────────────────
 
-async def _yt(ctx: MessageContext, url: str, modo: str):
+async def _yt(ctx: MessageContext, url: str, modo: str, caption_extra: str = ""):
     """Baixa áudio (MP3) ou vídeo (MP4) de um link do YouTube via Delirius.
     Tenta o endpoint v1 e cai no v2 se o primeiro falhar.
     O modo é detectado pelo handle() com base nas palavras da mensagem.
@@ -147,45 +327,85 @@ async def _yt(ctx: MessageContext, url: str, modo: str):
     title = _extract_title(data)
     if title:
         caption = f"{caption}\n_{title}_"
+    if caption_extra:
+        caption = f"{caption}\n{caption_extra}"
 
     path = await _baixar(media_url, ext)
     if not path:
         await ctx.reply("baixei o link mas não consegui salvar o arquivo")
         return
+    send_path = await _to_whatsapp_ogg(path) if ext == "mp3" else path
+    if ext == "mp3" and not send_path:
+        send_path = path
     try:
-        await ctx.reply_media(path, caption=caption)
+        await ctx.reply_media(send_path, caption=caption)
     finally:
+        if send_path != path:
+            _rm(send_path)
         _rm(path)
 
 
-async def _spotify(ctx: MessageContext, url: str):
+async def _spotify(ctx: MessageContext, url: str, *, fallback_query: str = "", prefer_original: bool = True):
     """Baixa a faixa de um link do Spotify como MP3 via Delirius.
     Monta a legenda com título e artista se a API retornar esses dados.
     """
-    data = _get_json("/download/spotifydl", {"url": url})
-    if not data:
+    data = _get_json("/download/spotifydl", {"url": url}, timeout=90, attempts=2)
+    if not isinstance(data, dict):
+        if fallback_query and await _spotify_youtube_fallback(ctx, fallback_query, prefer_original=prefer_original):
+            return
         await ctx.reply("API fora agora")
         return
 
     media_url = _extract_url(data)
     if not media_url:
+        if fallback_query and await _spotify_youtube_fallback(ctx, fallback_query, prefer_original=prefer_original):
+            return
         await ctx.reply(f"resposta inesperada 🌀\n`{str(data)[:200]}`")
         return
 
     title  = _extract_title(data)
-    artist = data.get("artists") or data.get("artist") or ""
-    if isinstance(artist, list):
-        artist = ", ".join(str(a) for a in artist)
-    caption = f"🎵 {title} — {artist}".strip(" —") if title else "🎵 Spotify"
+    artist = _extract_artist(data)
+    header = f"🎵 {title} — {artist}".strip(" —") if title else "🎵 Spotify"
+    caption = f"{header}\nSpotify: {url}"
 
     path = await _baixar(media_url, "mp3")
     if not path:
+        if fallback_query and await _spotify_youtube_fallback(ctx, fallback_query, prefer_original=prefer_original):
+            return
         await ctx.reply("não consegui baixar o arquivo")
         return
+    send_path = await _to_whatsapp_ogg(path) or path
     try:
-        await ctx.reply_media(path, caption=caption)
+        await ctx.reply_media(send_path, caption=caption)
     finally:
+        if send_path != path:
+            _rm(send_path)
         _rm(path)
+
+
+async def _spotify_query(ctx: MessageContext, query: str):
+    """Busca a faixa pelo texto, refinando a consulta com LLM quando possivel."""
+    prefer_original = not _allows_alternate_version(query)
+    candidates = _spotify_search_candidates(query)
+    result = None
+    used_query = ""
+    for candidate in candidates:
+        result = _spotify_search(candidate, prefer_original=prefer_original)
+        if result:
+            used_query = candidate
+            break
+    url = (result or {}).get("url")
+    if not url:
+        await ctx.reply("não achei essa música no Spotify")
+        return
+    if used_query:
+        title = (result or {}).get("title") or (result or {}).get("name") or ""
+        artist = (result or {}).get("artist") or (result or {}).get("artists") or ""
+        if isinstance(artist, list):
+            artist = ", ".join(str(a) for a in artist)
+        log.info(f"Spotify busca '{query}' -> '{used_query}' => {title} — {artist}")
+    fallback_query = " ".join(str(x) for x in (title, artist) if x).strip() or used_query or query
+    await _spotify(ctx, url, fallback_query=fallback_query, prefer_original=prefer_original)
 
 
 async def _instagram(ctx: MessageContext, url: str):
@@ -276,12 +496,19 @@ async def handle(ctx: MessageContext):
     url, tipo = detect_url(text)
 
     if not url:
+        command = (ctx.raw_text or "").strip().split(maxsplit=1)[0].lower()
+        if command in ("!spotify", "!spot", "!spoty") and ctx.args_text.strip():
+            await ctx.typing()
+            await _spotify_query(ctx, ctx.args_text.strip())
+            return
         await ctx.reply(
             "manda o link junto 🔗\n"
-            "_aceito: YouTube, Spotify, Instagram, Twitter/X_\n\n"
+            "_aceito: YouTube, Spotify, Instagram, Twitter/X_\n"
+            "_Spotify também aceita busca por texto._\n\n"
             "exemplos:\n"
             "`!yt https://youtu.be/...`\n"
             "`!spot https://open.spotify.com/track/...`\n"
+            "`!spot zelda lost woods`\n"
             "`!ig https://instagram.com/reel/...`\n"
             "`!x https://x.com/.../status/...`"
         )
@@ -305,7 +532,7 @@ SKILL = Skill(
     description=(
         "*!yt <link>* — áudio do YouTube (MP3)\n"
         "*!ytv <link>* — vídeo do YouTube (MP4)\n"
-        "*!spot <link>* — baixar do Spotify\n"
+        "*!spot <link ou busca>* — baixar do Spotify\n"
         "*!ig <link>* — baixar do Instagram\n"
         "*!x <link>* — baixar do Twitter/X"
     ),
@@ -313,7 +540,7 @@ SKILL = Skill(
         "!baixa", "!dl", "!download",
         "!yt", "!ytmp3",
         "!ytv", "!ytmp4",
-        "!spotify", "!spot",
+        "!spotify", "!spot", "!spoty",
         "!ig", "!insta", "!instagram",
         "!x", "!twitter",
     ],

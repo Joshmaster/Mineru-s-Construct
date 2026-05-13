@@ -463,6 +463,54 @@ def extract_image_query(message: str, usuario: str = "") -> str | None:
     return query[:120] or None
 
 
+def spotify_search_queries(message: str) -> list[str]:
+    """Transforma um pedido livre em consultas Spotify prováveis.
+
+    Retorna lista vazia se o LLM falhar; o chamador deve cair no texto original.
+    """
+    if not message or not message.strip():
+        return []
+
+    system = (
+        "Voce prepara buscas para encontrar a faixa ORIGINAL no Spotify.\n"
+        "Receba o pedido do usuario, corrija erros comuns de digitacao, identifique titulo e artista "
+        "quando possivel, e remova palavras de comando como baixar, manda, musica, mp3, spot.\n"
+        "Por padrao sempre priorize a gravacao original/oficial. Evite karaoke, cover, remix, "
+        "instrumental, sped up, slowed, live e tribute, a menos que o usuario tenha pedido "
+        "explicitamente essa versao alternativa.\n"
+        "Monte 1 a 4 consultas curtas em ordem de chance. Prefira 'titulo artista'.\n"
+        "Responda somente JSON valido: {\"queries\":[\"...\"]}."
+    )
+    messages = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": message},
+    ]
+    raw = (
+        _call_openrouter(messages, max_tokens=120, temperature=0.0, timeout=12)
+        or _call_groq(messages, max_tokens=120, temperature=0.0, timeout=12)
+        or _call_ollama(messages, think=False, num_predict=100, temperature=0.0, timeout=25)
+    )
+    data = _json_from_text(raw or "")
+    items = (data or {}).get("queries")
+    if not isinstance(items, list):
+        return []
+
+    seen: set[str] = set()
+    queries: list[str] = []
+    for item in items:
+        q = re.sub(r"\s+", " ", str(item or "")).strip()
+        if not q or len(q) > 120:
+            continue
+        key = q.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        queries.append(q)
+        if len(queries) >= 4:
+            break
+    return queries
+
+
 def choose_reaction_emoji(
     message: str,
     *,

@@ -1,5 +1,7 @@
 # Memory Index
 
+- [REGRA 0 — Dados sensíveis local only](feedback_regra0_dados_sensiveis.md) — tokens, chaves e credenciais NUNCA vão pro git; somente servidor local
+
 - [Projeto Hyrule](project_hyrule.md) — arquitetura completa: bot Link, supervisor, watcher, proxy, hooks, fluxo de pedidos
 - [Rotina e comportamento padrão](feedback_session_start.md) — o que fazer a cada sessão, como responder ao "claude link", o que monitorar proativamente
 - [Modelos Ollama](project_ollama_models.md) — qwen3:8b em uso, histórico de modelos testados
