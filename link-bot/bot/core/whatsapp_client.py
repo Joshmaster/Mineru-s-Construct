@@ -97,11 +97,15 @@ class WhatsAppClient:
         return _MsgResp(resp.json().get("id", ""))
 
     async def send_audio(self, jid, path: str, ptt: bool = False):
+        ext = path.rsplit(".", 1)[-1].lower() if "." in path else "ogg"
+        mime_map = {"mp3": "audio/mpeg", "m4a": "audio/mp4", "wav": "audio/wav", "aac": "audio/aac"}
+        mimetype = mime_map.get(ext, "audio/ogg; codecs=opus")
         http = self._client()
         resp = await http.post("/send/audio", json={
             "jid": self._jid_str(jid),
             "base64": self._b64(path),
             "ptt": ptt,
+            "mimetype": mimetype,
         })
         resp.raise_for_status()
 

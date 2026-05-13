@@ -196,29 +196,81 @@ def _gerar_imagem(prompt: str, modelo_key: str, aspect_ratio: str) -> tuple[str 
     return None, f"não consegui gerar a imagem agora: {last_error}"
 
 
+import logging as _log_mod
+log = _log_mod.getLogger("img_gerar")
+
+
+def _apply_overlay(path: str, text: str):
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+        _FONT = Path("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf")
+        img = Image.open(path).convert("RGB")
+        w, h = img.size
+        draw = ImageDraw.Draw(img)
+        try:
+            font = ImageFont.truetype(str(_FONT), size=max(32, h // 20))
+        except Exception:
+            font = ImageFont.load_default()
+        tw = int(draw.textlength(text, font=font))
+        draw.text(
+            ((w - tw) // 2, h - int(h * 0.12)),
+            text, fill=(255, 255, 255),
+            font=font, stroke_width=4, stroke_fill=(0, 0, 0),
+        )
+        img.save(path, "PNG")
+    except Exception as e:
+        log.warning(f"Overlay PIL falhou: {e}")
+
+
 async def handle(ctx: MessageContext):
     if not _is_owner(ctx):
         await ctx.reply("🔒 geração de imagem fica só pro dono.")
         return
 
-    modelo_key, aspect, prompt = _parse_args(ctx.args_text or "")
-    if not prompt:
-        await ctx.reply(
-            "manda assim: `!img um castelo de Hyrule ao pôr do sol`\n"
-            "opcional: `ar=16:9` e `modelo=openai`"
-        )
+    raw = (ctx.args_text or "").strip()
+    if not raw:
+        await ctx.reply("manda assim: `!img um castelo de Hyrule ao pôr do sol`")
         return
+
+    # Overlay opcional: "prompt :: texto sobre a imagem"
+    overlay_text = ""
+    if "::" in raw:
+        parts = raw.split("::", 1)
+        raw = parts[0].strip()
+        overlay_text = parts[1].strip()
 
     await ctx.typing()
-    path, info = await asyncio.get_event_loop().run_in_executor(
-        None, _gerar_imagem, prompt, modelo_key, aspect
-    )
+
+    path = None
+    info = ""
+
+    # Tenta Meta AI primeiro (sem token)
+    try:
+        from bot.core import meta_ai as _meta_ai
+        if _meta_ai.proxy.configured:
+            path = await _meta_ai.proxy.ask_image(raw, timeout=90)
+            if path:
+                info = "Meta AI"
+    except Exception as e:
+        log.warning(f"Meta AI falhou: {e}")
+
+    # Fallback: OpenRouter
     if not path:
-        await ctx.reply(info)
+        modelo_key, aspect, prompt_clean = _parse_args(raw)
+        path, info = await asyncio.get_event_loop().run_in_executor(
+            None, _gerar_imagem, prompt_clean or raw, modelo_key, aspect
+        )
+
+    if not path:
+        await ctx.reply(info or "não consegui gerar a imagem agora")
         return
 
+    if overlay_text:
+        _apply_overlay(path, overlay_text)
+
     try:
-        await ctx.reply_media(path, caption=info)
+        caption = f"🎨 {raw[:80]}" + (f"\n_{overlay_text}_" if overlay_text else "")
+        await ctx.reply_media(path, caption=caption)
     finally:
         try:
             os.unlink(path)
@@ -228,7 +280,7 @@ async def handle(ctx: MessageContext):
 
 SKILL = Skill(
     name="img_gerar",
-    description="*!img <prompt>* — gera imagem via OpenRouter (só dono)",
+    description="*!img <prompt>* — gera imagem (Meta AI ou OpenRouter, só dono)",
     triggers=["!img"],
     handler=handle,
     category="midia",

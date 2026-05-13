@@ -46,6 +46,7 @@ from bot.core.storage import Storage
 from bot.core.scheduler import ReminderScheduler
 from bot.core import llm as _llm
 from bot.core import access as access_ctl
+from bot.core import meta_ai as _meta_ai
 
 
 # ===================== CONFIG / LOG =====================
@@ -130,6 +131,21 @@ def load_all_skills(router: Router):
     if failed:
         for name, err in failed:
             log.warning(f"  ⚠️ {name}: {err}")
+
+    # Monta catálogo de skills e injeta no LLM para que saiba responder sobre comandos
+    try:
+        linhas = []
+        for skill in router.list_enabled():
+            # Usa apenas a primeira linha da description para manter o catálogo compacto
+            desc_curta = (skill.description or "").split("\n")[0].strip()
+            # Remove markdown bold (*texto*) para ficar limpo no system prompt
+            desc_curta = desc_curta.replace("*", "")
+            triggers_str = ", ".join(skill.triggers[:3]) if skill.triggers else ""
+            linhas.append(f"- {triggers_str}: {desc_curta}")
+        _llm.set_skill_catalog("\n".join(linhas))
+    except Exception as e:
+        log.warning(f"Não foi possível montar catálogo de skills para o LLM: {e}")
+
     return loaded
 
 
@@ -168,6 +184,9 @@ class LinkBot:
         # Bridge URL (configurável)
         bridge_url = config.get("BRIDGE_URL", "http://localhost:7334")
         self.client = WhatsAppClient(bridge_url)
+
+        # Meta AI proxy (sem token — usa chat do WhatsApp)
+        _meta_ai.proxy.setup(self.client, config.get("META_AI_JID", ""))
 
         # Scheduler
         self.scheduler = ReminderScheduler(
@@ -678,6 +697,13 @@ class LinkBot:
         if self._check_reminder_reaction(msg):
             return
 
+        # Meta AI: intercepta antes do allow list (não está na lista de permitidos)
+        if _meta_ai.proxy.is_from_meta_ai(msg):
+            async def _dl():
+                return await self._download_media(msg)
+            await _meta_ai.proxy.intercept(msg, _dl)
+            return
+
         # Registra JIDs conhecidos
         for key in access_ctl.identity_keys(sender_number, chat_number, sender_jid_str, chat_jid_str):
             self.user_jids[key] = chat_jid
@@ -770,19 +796,32 @@ class LinkBot:
             log.info(f"📤 [id={sender_number} phone/chat={chat_number}] {reply}")
             return
 
-        # Match skills
+        # URL auto-detect → delirius_dl (YouTube, Spotify, Instagram, Twitter/X)
+        match = None
+        try:
+            from bot.skills.delirius_dl import detect_url as _detect_dl_url
+            _auto_url, _ = _detect_dl_url(text)
+            if _auto_url:
+                _dl_skill = self.router.get_by_name("delirius_dl")
+                if _dl_skill:
+                    match = (_dl_skill, text)
+        except Exception:
+            pass
+
+        # Match skills (se URL auto-detect não achou nada)
         stripped = text.strip()
-        direct_router = self.router.match(text)
-        if stripped.startswith(("!", "[")) or (direct_router and direct_router[0].name in {"ajuda"}):
-            match = self.router.match(text)
-        else:
-            ai_match = await asyncio.get_event_loop().run_in_executor(None, self._ai_match_skill, text)
-            if ai_match is False:
-                match = None
-            elif ai_match is None:
-                match = self.router.match(text)
+        if match is None:
+            direct_router = self.router.match(text)
+            if stripped.startswith(("!", "[")) or (direct_router and direct_router[0].name in {"ajuda"}):
+                match = direct_router
             else:
-                match = ai_match
+                ai_match = await asyncio.get_event_loop().run_in_executor(None, self._ai_match_skill, text)
+                if ai_match is False:
+                    match = None
+                elif ai_match is None:
+                    match = direct_router
+                else:
+                    match = ai_match
 
         if match is None:
             try:

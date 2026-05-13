@@ -123,20 +123,24 @@ class MessageContext:
 
     async def reply_media(self, file_path: str, caption: str = "",
                            as_sticker: bool = False):
-        """Envia mídia (imagem/vídeo/sticker) pro chat."""
+        """Envia mídia detectando o tipo pela extensão do arquivo."""
         if self.client is None:
             print(f"[reply_media mock] {file_path} (sticker={as_sticker})")
             return
         try:
+            ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
             if as_sticker:
                 if hasattr(self.client, "send_sticker"):
                     await self.client.send_sticker(self.chat_jid, file_path)
                 else:
                     await self.client.send_message(self.chat_jid, file_path)
+                if caption:
+                    await self.client.send_message(self.chat_jid, caption)
+            elif ext in ("mp3", "ogg", "m4a", "wav", "aac", "opus"):
+                await self.client.send_audio(self.chat_jid, file_path, ptt=True)
+                if caption:
+                    await self.client.send_message(self.chat_jid, caption)
             else:
                 await self.send_image(file_path, caption)
-                return
-            if caption:
-                await self.client.send_message(self.chat_jid, caption)
         except Exception as e:
             print(f"[reply_media err] {e}")

@@ -52,6 +52,14 @@ async function connectToWhatsApp() {
 
     sock.ev.on("creds.update", saveCreds);
 
+    // debug: log all events
+    const _origEmit = sock.ev.emit.bind(sock.ev);
+    sock.ev.emit = (event, ...args) => {
+        if (!["messages.upsert", "connection.update", "creds.update"].includes(event))
+            console.log(`[ev] ${event}`);
+        return _origEmit(event, ...args);
+    };
+
     sock.ev.on("connection.update", async (update) => {
         const { connection, lastDisconnect, qr } = update;
 
@@ -78,9 +86,11 @@ async function connectToWhatsApp() {
     });
 
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
+        console.log(`messages.upsert type=${type} count=${messages.length}`);
         if (type !== "notify") return;
 
         for (const msg of messages) {
+            console.log(`msg fromMe=${msg.key.fromMe} jid=${msg.key.remoteJid} hasMsg=${!!msg.message}`);
             if (msg.key.fromMe) continue;
             if (!msg.message) continue;
 
@@ -188,6 +198,13 @@ app.get("/qr", async (req, res) => {
     res.send(`<html><body style="display:flex;flex-direction:column;align-items:center;font-family:sans-serif"><h2>Escanear QR — Link Bot</h2><img src="${img}" style="width:300px"><p>Abra o WhatsApp → Dispositivos vinculados → Vincular dispositivo</p></body></html>`);
 });
 
+app.get("/qr.png", async (req, res) => {
+    if (!qrString) return res.status(404).send("sem QR");
+    const buf = await qrcode.toBuffer(qrString, { type: "png", width: 400, margin: 2 });
+    res.setHeader("Content-Type", "image/png");
+    res.send(buf);
+});
+
 app.get("/qr/text", (req, res) => {
     if (!qrString) {
         return res.status(404).json({ ok: false, error: "no qr" });
@@ -221,15 +238,17 @@ app.post("/send/image", requireConnected, async (req, res) => {
 });
 
 app.post("/send/audio", requireConnected, async (req, res) => {
-    const { jid, base64, ptt = false } = req.body;
+    const { jid, base64, ptt = false, mimetype = "audio/ogg; codecs=opus" } = req.body;
     if (!jid || !base64) return res.status(400).json({ ok: false, error: "jid e base64 obrigatórios" });
+    console.log(`send/audio → jid=${jid} ptt=${ptt} mime=${mimetype} size=${base64.length}`);
     try {
         const buf = Buffer.from(base64, "base64");
         const result = await sock.sendMessage(jid, {
             audio: buf,
             ptt: !!ptt,
-            mimetype: "audio/ogg; codecs=opus",
+            mimetype,
         });
+        console.log(`send/audio OK → id=${result?.key?.id} remoteJid=${result?.key?.remoteJid}`);
         res.json({ ok: true, id: result?.key?.id || "" });
     } catch (e) {
         console.error(`send/audio erro: ${e.message}`);
@@ -291,7 +310,7 @@ app.post("/download/media", requireConnected, async (req, res) => {
 
 // ─── Start ───────────────────────────────────────────────────────────────────
 
-app.listen(BRIDGE_PORT, "127.0.0.1", () => {
+app.listen(BRIDGE_PORT, "0.0.0.0", () => {
     console.log(`🌉 WhatsApp Bridge rodando em http://localhost:${BRIDGE_PORT}`);
     console.log(`   Webhook Python: ${WEBHOOK_URL}`);
     connectToWhatsApp().catch(console.error);

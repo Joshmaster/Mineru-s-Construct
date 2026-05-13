@@ -127,6 +127,17 @@ def _finalize_reply(reply: str, user_id: str) -> str:
     return reply.strip()
 
 
+# ── Catálogo de skills (injetado no system prompt do chat) ───────────────────
+
+_skill_catalog: str = ""
+
+
+def set_skill_catalog(catalog: str):
+    """Recebe o catálogo de skills gerado em main.py e guarda para injetar no system prompt."""
+    global _skill_catalog
+    _skill_catalog = catalog
+
+
 # ── Histórico por usuário ────────────────────────────────────────────────────
 
 _history: dict[str, list] = {}
@@ -284,6 +295,78 @@ def _call_ollama(messages: list, think: bool = False, num_predict: int = 100, te
     text = (resp.get("message", {}).get("content") or "").strip()
     text = _strip_thinking(text)
     return text or None
+
+
+# ── Delirius LLM (free, sem chave) ───────────────────────────────────────────
+
+_DELIRIUS_BASE = "https://api.delirius.store"
+
+
+def _build_delirius_prompt(user_message: str) -> str:
+    """Monta o prompt para Delirius embutindo identidade + catálogo de skills.
+    A API Delirius não suporta system prompt, então tudo vai no campo ?q=.
+    Limita a 900 chars para não estourar a URL.
+    """
+    identity = (
+        "Você é Link, assistente no WhatsApp do Hyrule. "
+        "Responda em português do Brasil, curto e direto. "
+        "Nunca diga que é IA ou bot.\n"
+    )
+    catalog_block = ""
+    if _skill_catalog:
+        # Versão compacta: só os triggers e primeira descrição de cada skill
+        linhas = []
+        for linha in _skill_catalog.splitlines():
+            linhas.append(linha)
+            if len("\n".join(linhas)) > 400:
+                break
+        catalog_block = "Comandos disponíveis:\n" + "\n".join(linhas) + "\n"
+
+    prompt = f"{identity}{catalog_block}\nPergunta: {user_message}"
+    return prompt[:900]
+
+
+def _call_delirius_llm(user_message: str, timeout: int = 15) -> Optional[str]:
+    """Tenta chatgpt e gemini da Delirius Store (free, sem chave).
+    Embute identidade + catálogo de skills no próprio ?q= já que a API não suporta system prompt.
+    Primeiro fallback remoto — acionado antes de OpenRouter/Groq.
+    """
+    if _cloud_blocked("delirius"):
+        return None
+
+    import urllib.parse as _up
+    prompt = _build_delirius_prompt(user_message)
+    for path, param in (
+        ("/ia/chatgpt", "q"),
+        ("/ia/gemini",  "query"),
+    ):
+        url = f"{_DELIRIUS_BASE}{path}?{_up.urlencode({param: prompt})}"
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "HyruleBot/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+            # Extrai texto de vários formatos de resposta possíveis
+            text = (
+                data.get("result")
+                or data.get("response")
+                or data.get("answer")
+                or data.get("message")
+                or (data.get("data") or {}).get("result")
+                or (data.get("data") or {}).get("response")
+            )
+            if text and str(text).strip():
+                log.debug(f"Delirius LLM ok: {path}")
+                _mark_cloud_ok("delirius")
+                return str(text).strip()
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403, 429):
+                _mark_cloud_fail("delirius")
+            log.debug(f"Delirius {path} falhou HTTP {e.code}")
+        except Exception as e:
+            log.debug(f"Delirius {path} falhou: {e}")
+            _mark_cloud_fail("delirius")
+
+    return None
 
 
 def _json_from_text(text: str) -> dict | None:
@@ -540,6 +623,29 @@ def _is_owner(user_id: str) -> bool:
         return False
 
 
+def rewrite_for_tts(text: str) -> str:
+    """Melhora o texto para fala: corrige gramática, expande abreviações,
+    torna a frase mais natural e fluida. Retorna o texto original se o LLM falhar."""
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Você é um editor de texto para síntese de voz (TTS). "
+                "Receba o texto e reescreva-o de forma mais natural, fluida e agradável ao ouvido, "
+                "corrigindo gramática, expandindo abreviações e melhorando o fluxo da frase. "
+                "Mantenha o idioma original. Retorne APENAS o texto reescrito, sem explicações."
+            ),
+        },
+        {"role": "user", "content": text},
+    ]
+    result = (
+        _call_openrouter(messages, max_tokens=300, temperature=0.7)
+        or _call_groq(messages, max_tokens=300, temperature=0.7)
+        or _call_ollama(messages, num_predict=200, temperature=0.7)
+    )
+    return result.strip() if result and result.strip() else text
+
+
 def chat(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
     """
     Gera resposta LLM com persona Link.
@@ -564,9 +670,17 @@ def chat(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
             f"\n\n# Esta mensagem é de {usuario}, um usuário comum autorizado.\n"
             "Não trate essa pessoa como OWNER e não diga que ela é dona do sistema."
         )
+    if _skill_catalog:
+        system += f"\n\n# Comandos disponíveis neste bot\n{_skill_catalog}"
+
     messages = [{"role": "system", "content": system}] + _get_history(user_id)
 
-    raw_reply = _call_openrouter(messages) or _call_groq(messages)
+    # Delirius free LLMs → OpenRouter → Groq
+    raw_reply = (
+        _call_delirius_llm(user_message)
+        or _call_openrouter(messages)
+        or _call_groq(messages)
+    )
     if not raw_reply:
         # Ollama local: usa persona compacta + últimas 4 msgs para caber no timeout
         owner_name = _owner_name()

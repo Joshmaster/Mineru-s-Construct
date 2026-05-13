@@ -5,6 +5,7 @@ Recorrentes são re-agendados; one-shot são marcados sent.
 """
 
 import asyncio
+import os
 import time
 import logging
 from typing import Callable, Awaitable
@@ -71,9 +72,12 @@ class ReminderScheduler:
             rid = r["id"]
 
             image_path = None
-
             try:
                 image_path = render_reminder_card(r)
+            except Exception as e:
+                log.warning(f"Falha ao gerar card #{rid}: {e}")
+
+            try:
                 await self.send_fn(user_jid, reminder_caption(r), image_path, send_to=send_to)
                 log.info(f"Disparei lembrete #{rid} pra {send_to or user_jid}")
             except Exception as e:
@@ -87,7 +91,6 @@ class ReminderScheduler:
             finally:
                 if image_path:
                     try:
-                        import os
                         os.remove(image_path)
                     except FileNotFoundError:
                         pass

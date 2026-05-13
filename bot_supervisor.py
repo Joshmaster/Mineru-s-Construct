@@ -832,7 +832,59 @@ def chamar_ollama_simples(system: str, user: str) -> str | None:
     return None
 
 
+_DELIRIUS_IDENTITY = (
+    "Você é Link, assistente pessoal no Discord/WhatsApp do Hyrule. "
+    "Responda em português do Brasil, direto e sem formalidade. "
+    "Nunca diga que é IA ou bot. "
+    "Você executa tarefas no PC, busca informações, responde perguntas e aciona ferramentas.\n"
+)
+
+
+def _delirius_prompt(pergunta: str) -> str:
+    """Embute identidade no ?q= já que a API Delirius não suporta system prompt.
+    Limita a 900 chars para não estourar a URL.
+    """
+    prompt = f"{_DELIRIUS_IDENTITY}\nPergunta: {pergunta}"
+    return prompt[:900]
+
+
+def chamar_delirius_llm(pergunta: str, timeout: int = 15) -> str | None:
+    """Delirius Store free LLMs: chatgpt → gemini. Sem chave.
+    Embute identidade do bot no próprio ?q= para contextualizar as respostas.
+    Primeiro fallback remoto — acionado antes de OpenRouter/Groq.
+    """
+    import urllib.parse as _up
+    prompt = _delirius_prompt(pergunta)
+    for path, param in (
+        ("/ia/chatgpt", "q"),
+        ("/ia/gemini",  "query"),
+    ):
+        url = f"https://api.delirius.store{path}?" + _up.urlencode({param: prompt})
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "HyruleBot/1.0"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                data = json.loads(r.read().decode("utf-8"))
+            text = (
+                data.get("result")
+                or data.get("response")
+                or data.get("answer")
+                or data.get("message")
+                or (data.get("data") or {}).get("result")
+            )
+            if text and str(text).strip():
+                log(f"[delirius] respondeu via {path}")
+                return str(text).strip()
+        except Exception as e:
+            log(f"[delirius] {path} falhou: {e}")
+    return None
+
+
 def chamar_llm(system: str, user: str, max_tokens: int = 400, local_fallback: bool = True) -> str | None:
+    # 1. Delirius free LLMs — sem chave, primeira tentativa
+    resp_del = chamar_delirius_llm(user)
+    if resp_del:
+        return resp_del
+    # 2. OpenRouter
     for model in MODELOS:
         for key in OPENROUTER_KEYS:
             payload = json.dumps({
@@ -865,9 +917,9 @@ def chamar_llm(system: str, user: str, max_tokens: int = 400, local_fallback: bo
                     continue
             except Exception:
                 continue
-    # Fallback Ollama/Kimi
+    # 3. Ollama local — último recurso
     if local_fallback and ollama_disponivel():
-        log("OpenRouter esgotado — fallback Ollama/Kimi")
+        log("OpenRouter esgotado — fallback Ollama local")
         return chamar_ollama_simples(system, user)
     return None
 
@@ -1517,6 +1569,29 @@ def executar_pedido(pedido: str, usuario: str = "OWNER") -> str | None:
 
     # Pedido genérico — usa LLM para gerar resposta
     return None
+
+
+def _daemon_ativo(script: str) -> bool:
+    """Verifica se um processo Python com o nome de script está rodando."""
+    try:
+        r = subprocess.run(
+            ["pgrep", "-f", script],
+            capture_output=True, text=True, timeout=3
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def enfileirar_ultimo_recurso(pedido: str, usuario: str, canal: str = "discord"):
+    """Passo 6: MAJORA (Codex) se ativo, senão TRIFORCE (Claude Code)."""
+    if _daemon_ativo("watch_codex_queue.py"):
+        enfileirar_para_majora(pedido, usuario, canal=canal)
+    elif _daemon_ativo("triforce_daemon.py"):
+        enfileirar_para_claude(pedido, usuario, canal=canal)
+    else:
+        # Nenhum daemon ativo — enfileira TRIFORCE mesmo assim (vai processar quando subir)
+        enfileirar_para_claude(pedido, usuario, canal=canal)
 
 
 def enfileirar_para_claude(pedido: str, usuario: str, canal: str = "discord"):
@@ -2421,20 +2496,19 @@ def responder_pedido(pedido: str, usuario: str, sem_triforce: bool = False, cana
         enviar(usuario, resultado, canal)
         return
 
-    # 2. Link Discord (qwen local) — ReAct loop, executor principal
-    if ollama_disponivel():
-        resultado_react = executar_qwen_react(pedido, usuario)
-        if resultado_react:
-            enviar(usuario, resultado_react, canal)
-            return
+    # 2. Delirius free LLMs — primeira tentativa remota, sem chave
+    resultado_delirius = chamar_delirius_llm(pedido)
+    if resultado_delirius:
+        enviar(usuario, resultado_delirius, canal)
+        return
 
-    # 3. Fallback OpenRouter (se Ollama indisponível)
+    # 3. OpenRouter com tools
     resultado_agente = chamar_agente_tools(pedido, usuario)
     if resultado_agente:
         enviar(usuario, resultado_agente, canal)
         return
 
-    # 4. Groq direto
+    # 4. Groq com tools
     try:
         tools_g = _selecionar_tools(pedido)
         system_g = "Você é um assistente pessoal. Responda de forma direta em português."
@@ -2445,12 +2519,19 @@ def responder_pedido(pedido: str, usuario: str, sem_triforce: bool = False, cana
     except Exception:
         pass
 
+    # 5. Ollama local (qwen ReAct) — só quando tudo remoto falhou
+    if ollama_disponivel():
+        resultado_react = executar_qwen_react(pedido, usuario)
+        if resultado_react:
+            enviar(usuario, resultado_react, canal)
+            return
+
     if sem_triforce:
         enviar(usuario, "⚠️ não consegui processar agora, tente novamente.", canal)
         return
 
-    # 5. Escala pro Claude Code só se tudo falhar
-    enfileirar_para_claude(pedido, usuario, canal=canal)
+    # 6. TRIFORCE → MAJORA — último recurso
+    enfileirar_ultimo_recurso(pedido, usuario, canal=canal)
 
 
 # ── Corretor de respostas ruins ───────────────────────────────────────────────

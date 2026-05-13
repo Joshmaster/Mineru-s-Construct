@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import io
+import logging
+import os
+import random
 import re
 import tempfile
 import textwrap
+import urllib.parse
 from datetime import datetime
 from pathlib import Path
 from typing import Iterable
 from zoneinfo import ZoneInfo
 
+import httpx
 from PIL import Image, ImageDraw, ImageFont
+
+log = logging.getLogger("reminder_art")
 
 
 LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
@@ -142,6 +150,183 @@ def render_reminder_card(reminder: dict) -> str:
 
     path = OUT_DIR / f"reminder_{rid}_{int(datetime.now(LOCAL_TZ).timestamp())}.png"
     img.save(path, "PNG", optimize=True)
+    return str(path)
+
+
+_SW_PROMPTS_PT = [
+    "Crie uma imagem cinematográfica épica de Star Wars: templo Jedi ao amanhecer, luz dourada mística, sombras dramáticas",
+    "Crie uma imagem de Star Wars: Millennium Falcon sobrevoando Coruscant à noite, luzes neon, cinematográfico",
+    "Crie uma imagem épica de Star Wars: duelo de sabres de luz azul versus vermelho, chuva dramática, cinematográfico",
+    "Crie uma imagem de Star Wars: Tatooine, dois sóis ao pôr do sol, silhueta de um guerreiro solitário, céu épico",
+    "Crie uma imagem de Star Wars: batalha espacial com X-Wings contra TIE Fighters, explosões, campo estelar épico",
+    "Crie uma imagem de Star Wars: guerreiro Mandaloriano no deserto ao pôr do sol, armadura brilhante, épico",
+    "Crie uma imagem de Star Wars: salto para o hiperespaço, túnel azul giratório, dramático",
+    "Crie uma imagem de Star Wars: floresta de Endor com ewoks, luzes bioluminescentes, noite mística",
+]
+
+_SW_PROMPTS = [
+    "cinematic Star Wars Jedi temple at dawn, mystical golden light, epic atmosphere, dramatic shadows",
+    "Star Wars Millennium Falcon flying over Coruscant city lights at night, neon glow, cinematic",
+    "Star Wars Tatooine desert twin suns at sunset, silhouette lone warrior, dramatic sky",
+    "Star Wars space battle X-wing fighters versus TIE fighters, explosions, stars, epic cinematic",
+    "Star Wars Endor forest moon ancient trees, bioluminescent lights, mystical night atmosphere",
+    "Star Wars Dagobah swamp misty, ancient Force energy green glow, cinematic",
+    "Star Wars lightsaber duel blue versus red, dramatic rain, cinematic portrait",
+    "Star Wars Mandalorian armor warrior in desert, golden sunset, epic cinematic lighting",
+    "Star Wars hyperspace jump swirling blue white tunnel inside cockpit, dramatic",
+    "Star Wars Naboo royal palace golden architecture, dramatic sunset, cinematic wide shot",
+]
+
+_SW_FLAVOR = [
+    "Que a Força esteja com você.",
+    "Use a Força, jovem padawan.",
+    "Este é o caminho.",
+    "A Força é forte em você.",
+    "Faça ou não faça, não existe tentar.",
+    "Um Jedi usa a Força para o conhecimento e defesa.",
+    "A galáxia não pode esperar. Toma seu remédio.",
+    "Até o lado sombrio cuida da saúde.",
+]
+
+
+async def render_starwars_card(reminder: dict) -> str:
+    """Gera card temático Star Wars via Pollinations + PIL. Retorna caminho do PNG."""
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    rid = int(reminder.get("id") or 0)
+    time_label = _time_from_reminder(reminder)
+    meds = _medication_lines(str(reminder.get("text") or ""))
+
+    seed = random.randint(1, 99999)
+    prompt = random.choice(_SW_PROMPTS)
+    poll_url = (
+        "https://image.pollinations.ai/prompt/"
+        + urllib.parse.quote(prompt)
+        + f"?model=flux&width=1080&height=1080&seed={seed}&nologo=true"
+    )
+
+    bg_img = None
+
+    # Tenta Meta AI primeiro (sem token, fundo de qualidade superior)
+    try:
+        from bot.core.meta_ai import proxy as _meta_proxy
+        if _meta_proxy.configured:
+            pt_prompt = random.choice(_SW_PROMPTS_PT)
+            meta_path = await _meta_proxy.ask_image(pt_prompt, timeout=75)
+            if meta_path and os.path.exists(meta_path):
+                bg_img = Image.open(meta_path).convert("RGBA").resize((1080, 1080))
+                os.remove(meta_path)
+    except Exception as e:
+        log.debug(f"Meta AI falhou para reminder card: {e}")
+
+    # Fallback: Pollinations Flux
+    if bg_img is None:
+        try:
+            async with httpx.AsyncClient(timeout=60, follow_redirects=True) as client:
+                resp = await client.get(poll_url)
+                if resp.status_code == 200:
+                    bg_img = Image.open(io.BytesIO(resp.content)).convert("RGBA").resize((1080, 1080))
+        except Exception:
+            pass
+
+    if bg_img is None:
+        bg_img = Image.new("RGBA", (1080, 1080), (0, 0, 16, 255))
+        _d = ImageDraw.Draw(bg_img)
+        for _ in range(300):
+            sx, sy = random.randint(0, 1079), random.randint(0, 1079)
+            br = random.randint(140, 255)
+            _d.ellipse((sx, sy, sx + 2, sy + 2), fill=(br, br, br, 255))
+
+    # Layout em 3 zonas:
+    #  [0   → 155] Header sólido escuro (título)
+    #  [155 → 490] Imagem visível (horário com stroke espesso)
+    #  [490 → 1080] Painel sólido escuro (remédios + rodapé)
+    overlay = Image.new("RGBA", (1080, 1080), (0, 0, 0, 0))
+    ov = ImageDraw.Draw(overlay)
+    for y in range(165):
+        a = max(0, 245 - int(y * 245 / 155))
+        ov.line([(0, y), (1080, y)], fill=(0, 0, 0, a))
+    PANEL_Y = 460
+    for y in range(PANEL_Y, 1080):
+        a = min(252, int((y - PANEL_Y) * 252 / 55))
+        ov.line([(0, y), (1080, y)], fill=(0, 0, 8, a))
+
+    canvas = Image.alpha_composite(bg_img, overlay)
+    draw = ImageDraw.Draw(canvas)
+
+    title_font  = _font(FONT_BOLD, 56)
+    time_font   = _font(FONT_BOLD, 200)
+    med_font    = _font(FONT_BOLD, 52)
+    dose_font   = _font(FONT_BOLD, 46)
+    flavor_font = _font(FONT_REGULAR, 32)
+
+    # ── Título no header ────────────────────────────────────────────────────────
+    draw.text(
+        (80, 46),
+        "HORA DO REMÉDIO",
+        fill=(255, 232, 26),
+        font=title_font,
+        stroke_width=4,
+        stroke_fill=(0, 0, 0),
+    )
+
+    # ── Horário na zona de imagem — contorno preto espesso garante leitura ──────
+    tw = int(draw.textlength(time_label, font=time_font))
+    tx = (1080 - tw) // 2
+    draw.text(
+        (tx, 175),
+        time_label,
+        fill=(255, 232, 26),
+        font=time_font,
+        stroke_width=10,
+        stroke_fill=(0, 0, 0),
+    )
+
+    # ── Linha divisória dourada ──────────────────────────────────────────────────
+    draw.line([(55, 506), (1025, 506)], fill=(255, 232, 26), width=3)
+
+    # ── Lista de remédios no painel escuro ───────────────────────────────────────
+    py = 525
+    for name, dose in meds[:3]:
+        dot = (255, 80, 80) if "Aerolin" in name else (80, 200, 255)
+        draw.ellipse((88, py + 28, 138, py + 78), fill=dot)
+        for li, line in enumerate(_wrap(draw, name, med_font, 570)[:2]):
+            draw.text(
+                (162, py + 15 + li * 52),
+                line,
+                fill=(255, 255, 255),
+                font=med_font,
+                stroke_width=2,
+                stroke_fill=(0, 0, 0),
+            )
+        if dose:
+            dw = int(draw.textlength(dose, font=dose_font))
+            draw.text(
+                (990 - dw, py + 30),
+                dose,
+                fill=dot,
+                font=dose_font,
+                stroke_width=2,
+                stroke_fill=(0, 0, 0),
+            )
+        py += 130
+
+    # ── Frase Star Wars no rodapé ────────────────────────────────────────────────
+    flavor = random.choice(_SW_FLAVOR)
+    fw = int(draw.textlength(flavor, font=flavor_font))
+    draw.text(
+        ((1080 - fw) // 2, 968),
+        flavor,
+        fill=(200, 200, 200),
+        font=flavor_font,
+        stroke_width=2,
+        stroke_fill=(0, 0, 0),
+    )
+
+    # ── Borda amarela ────────────────────────────────────────────────────────────
+    draw.rectangle((0, 0, 1079, 1079), outline=(255, 232, 26), width=8)
+
+    path = OUT_DIR / f"sw_reminder_{rid}_{seed}.png"
+    canvas.convert("RGB").save(path, "PNG", optimize=True)
     return str(path)
 
 
