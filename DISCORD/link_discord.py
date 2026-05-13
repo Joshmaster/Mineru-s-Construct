@@ -106,6 +106,11 @@ except Exception:
     reminder_caption = None
     render_reminder_card = None
 
+try:
+    from bot.skills import delirius_dl as delirius_dl
+except Exception:
+    delirius_dl = None
+
 
 def _carregar_ctx():
     global _user_ctx
@@ -131,6 +136,87 @@ def _get_ctx(autor: str) -> dict:
     return _user_ctx.get(autor, {})
 
 _carregar_ctx()  # carrega ao iniciar
+
+
+async def _discord_spot(message, autor: str, query: str):
+    if delirius_dl is None:
+        await message.channel.send("o módulo de música não carregou aqui")
+        registrar("OUT", "Link", autor, "o módulo de música não carregou aqui")
+        return
+
+    query = (query or "").strip()
+    if not query:
+        await message.channel.send("manda o nome da música depois do !spot")
+        registrar("OUT", "Link", autor, "manda o nome da música depois do !spot")
+        return
+
+    prefer_original = not delirius_dl._allows_alternate_version(query)
+    spotify_url = ""
+    fallback_query = query
+    label = query
+
+    url_match = delirius_dl._RE_SPOTIFY.search(query)
+    if url_match:
+        spotify_url = url_match.group(0)
+    else:
+        candidates = delirius_dl._spotify_search_candidates(query)
+        result = None
+        used_query = ""
+        for candidate in candidates:
+            result = delirius_dl._spotify_search(candidate, prefer_original=prefer_original)
+            if result:
+                used_query = candidate
+                break
+        spotify_url = (result or {}).get("url") or ""
+        title = (result or {}).get("title") or (result or {}).get("name") or ""
+        artist = (result or {}).get("artist") or (result or {}).get("artists") or ""
+        if isinstance(artist, list):
+            artist = ", ".join(str(a) for a in artist)
+        fallback_query = " ".join(str(x) for x in (title, artist) if x).strip() or used_query or query
+        label = f"{title} — {artist}".strip(" —") if title else query
+        if used_query:
+            print(f"[DISCORD !spot] '{query}' -> '{used_query}' => {label}", flush=True)
+
+    async def _send_audio_from_media(media_url: str, source_text: str) -> bool:
+        path = await delirius_dl._baixar(media_url, "mp3")
+        if not path:
+            return False
+        send_path = await delirius_dl._to_whatsapp_ogg(path) or path
+        try:
+            filename = "spot.ogg" if send_path.endswith(".ogg") else "spot.mp3"
+            await message.channel.send(content=source_text, file=discord.File(send_path, filename=filename))
+            registrar("OUT", "Link", autor, f"[ARQUIVO: {filename}] {source_text}")
+            return True
+        finally:
+            if send_path != path:
+                delirius_dl._rm(send_path)
+            delirius_dl._rm(path)
+
+    if spotify_url:
+        data = delirius_dl._get_json("/download/spotifydl", {"url": spotify_url}, timeout=90, attempts=2)
+        media_url = delirius_dl._extract_url(data) if isinstance(data, dict) else None
+        if media_url:
+            title = delirius_dl._extract_title(data) or label
+            artist = delirius_dl._extract_artist(data)
+            header = f"{title} — {artist}".strip(" —")
+            if await _send_audio_from_media(media_url, f"{header}\nSpotify: {spotify_url}"):
+                return
+
+    yt = delirius_dl._youtube_search(fallback_query, prefer_original=prefer_original)
+    yt_url = (yt or {}).get("url")
+    if yt_url:
+        data = (
+            delirius_dl._get_json("/download/ytmp3", {"url": yt_url}, timeout=45, attempts=2)
+            or delirius_dl._get_json("/download/ytmp3v2", {"url": yt_url}, timeout=45, attempts=2)
+        )
+        media_url = delirius_dl._extract_url(data) if data else None
+        if media_url:
+            title = delirius_dl._extract_title(data) or (yt or {}).get("title") or fallback_query
+            if await _send_audio_from_media(media_url, f"{title}\nYouTube: {yt_url}"):
+                return
+
+    await message.channel.send("não consegui baixar essa música agora")
+    registrar("OUT", "Link", autor, "não consegui baixar essa música agora")
 
 
 # ── Lembretes Discord ────────────────────────────────────────────────────────
@@ -1096,6 +1182,12 @@ async def on_message(message):
         if resposta_z:
             await message.channel.send(resposta_z)
             registrar("OUT", "Link", autor, resposta_z)
+        return
+
+    if re.match(r'^!?\s*(spot|spotify|spoty)\b', _txt_norm):
+        pedido_spot = re.sub(r'^!?\s*(spot|spotify|spoty)\s*', '', _txt, flags=re.IGNORECASE).strip()
+        async with message.channel.typing():
+            await _discord_spot(message, autor, pedido_spot)
         return
 
     # Pedido natural de imagem/foto: baixa e envia arquivo direto, sem depender da IA.

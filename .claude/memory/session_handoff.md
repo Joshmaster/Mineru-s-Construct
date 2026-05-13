@@ -63,6 +63,11 @@ type: project
 ### Discord bot — restart 2026-05-13
 - Discord bot reiniciado para carregar estado atual do projeto; PID atual `168455`
 - Validação: `startup_services.py status` mostra Discord online
+- Correção posterior: `!spot` no Discord agora tem handler direto em `DISCORD/link_discord.py`, usando a mesma busca inteligente do WhatsApp, download por Spotify e fallback YouTube com envio de arquivo
+- Testado localmente: `telefoline eletric light orchestra` corrige para `Telephone Line — Electric Light Orchestra` e `/download/spotifydl` retorna mídia válida
+- Bloqueio atual: após restart, login do Discord falha com `401 Unauthorized / Improper token has been passed`; `hyrule_env.py` foi modificado às 19:09 e o token local atual é recusado pelo Discord
+- Não há backup local detectado com token Discord válido (`local_secrets/tokens.md` não contém token no formato esperado; `.pyc` já foi regenerado com o token atual)
+- Próximo passo: atualizar `DISCORD_TOKEN` em `hyrule_env.py` com token válido e reiniciar Discord bot
 
 ### Meta AI proxy — investigação e descarte
 - Implementamos `bot/core/meta_ai.py` (proxy singleton via Baileys)
