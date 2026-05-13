@@ -153,16 +153,17 @@ async def make_animated_sticker(input_path: str, output_path: str,
 
     ffmpeg = ffmpeg_bin()
 
-    # Tenta combinacoes de fps + qualidade. 15fps e 6s costumam ficar bons
-    # sem estourar 500KB; se precisar, reduz suavemente.
+    # Tenta 60fps primeiro; reduz qualidade e depois fps se necessário.
     attempts = [
-        (15, 82),
+        (60, 82),
+        (60, 70),
+        (60, 58),
+        (30, 72),
+        (30, 60),
         (15, 72),
-        (12, 72),
-        (12, 62),
-        (10, 62),
-        (10, 52),
-        (8, 46),
+        (15, 60),
+        (12, 52),
+        (10, 46),
         (8, 36),
     ]
 
