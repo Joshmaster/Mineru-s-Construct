@@ -26,10 +26,10 @@ except ImportError:
     OPENROUTER_KEYS = []
     _GROQ_KEYS_FROM_ENV = []
 OPENROUTER_MODELS = [
-    "meta-llama/llama-3.1-8b-instant:free",
-    "google/gemini-2.0-flash-exp:free",
+    "openai/gpt-oss-20b:free",
+    "openai/gpt-oss-120b:free",
     "meta-llama/llama-3.3-70b-instruct:free",
-    "mistralai/mistral-small-3.2-24b-instruct:free",
+    "qwen/qwen3-next-80b-a3b-instruct:free",
 ]
 
 GROQ_KEYS = _GROQ_KEYS_FROM_ENV
@@ -730,10 +730,10 @@ def chat(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
 
     messages = [{"role": "system", "content": system}] + _get_history(user_id)
 
-    # Delirius (free, sem auth) → OpenRouter → Ollama
+    # OpenRouter → Delirius → Ollama
     raw_reply = (
-        _call_delirius_llm(user_message)
-        or _call_openrouter(messages)
+        _call_openrouter(messages)
+        or _call_delirius_llm(user_message)
     )
     if not raw_reply:
         # Ollama local: usa persona compacta + últimas 4 msgs para caber no timeout
