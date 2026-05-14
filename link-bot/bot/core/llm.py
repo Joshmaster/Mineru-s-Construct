@@ -580,7 +580,7 @@ def choose_reaction_emoji(
             return None
         headers = {**GROQ_HEADERS, "Authorization": f"Bearer {GROQ_KEYS[0]}"}
         payload = {
-            "model": GROQ_MODELS[-1],
+            "model": GROQ_MODELS[0],
             "messages": messages,
             "temperature": 0.25,
             "max_tokens": 8,
@@ -591,8 +591,8 @@ def choose_reaction_emoji(
         return _extract_text(resp)
 
     raw = (
-        _openrouter_fast()
-        or _groq_fast()
+        _groq_fast()
+        or _openrouter_fast()
         or _call_ollama(messages, think=False, num_predict=8, temperature=0.2, timeout=5)
     )
     text = _strip_thinking(raw or "").strip()
