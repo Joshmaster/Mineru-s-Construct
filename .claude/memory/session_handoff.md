@@ -82,6 +82,13 @@ type: project
 - `DISCORD/link_discord.py` agora reage ao comando com `⚔️` ao iniciar, `✅` quando envia o áudio, e `⚠️` quando falta argumento ou falha o download
 - Discord bot reiniciado após ajuste; PID atual `172329`
 
+### Música MP3 direto — ajuste 2026-05-13
+- OWNER achou a qualidade ruim quando as músicas eram convertidas para OGG/Opus
+- Discord `!spot` agora envia `spot.mp3` direto, sem conversão para OGG
+- WhatsApp `!spot`/YouTube MP3 agora envia áudio normal `ptt=False` preservando o MP3, sem converter para OGG/Opus e sem mandar como nota de voz
+- WhatsApp bot reiniciado após ajuste; PID atual `172846`
+- Bloqueio atual do Discord: token salvo voltou a ser recusado pela API (`401 Unauthorized`), então Discord bot está offline até OWNER gerar/salvar outro token válido
+
 ### Meta AI proxy — investigação e descarte
 - Implementamos `bot/core/meta_ai.py` (proxy singleton via Baileys)
 - Investigação completa: Baileys retorna 200 OK mas mensagem não chega ao Meta AI
@@ -115,9 +122,9 @@ type: project
 
 ## Estado atual dos serviços
 - Bridge Baileys: rodando (porta 7334, PID `159181`, conectado)
-- WhatsApp bot: rodando (PID `167948`, logs em `link-bot/.linkbot/whatsapp_err.log`)
+- WhatsApp bot: rodando (PID `172846`, logs em `link-bot/.linkbot/whatsapp_err.log`)
 - Supervisor: rodando (PID `157898`)
-- Discord bot: rodando (PID `172329`)
+- Discord bot: offline no momento (`DISCORD_TOKEN` atual recusado com `401 Unauthorized`)
 - TRIFORCE daemon: rodando (PID `157912`)
 - MAJORA watcher/Codex: rodando com `codex-cli 0.130.0`
 - MASTERSWORD watcher: rodando (PID `157914`)

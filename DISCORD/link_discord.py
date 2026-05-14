@@ -191,16 +191,13 @@ async def _discord_spot(message, autor: str, query: str):
         path = await delirius_dl._baixar(media_url, "mp3")
         if not path:
             return False
-        send_path = await delirius_dl._to_whatsapp_ogg(path) or path
         try:
-            filename = "spot.ogg" if send_path.endswith(".ogg") else "spot.mp3"
-            await message.channel.send(content=source_text, file=discord.File(send_path, filename=filename))
+            filename = "spot.mp3"
+            await message.channel.send(content=source_text, file=discord.File(path, filename=filename))
             await _safe_react(message, "✅")
             registrar("OUT", "Link", autor, f"[ARQUIVO: {filename}] {source_text}")
             return True
         finally:
-            if send_path != path:
-                delirius_dl._rm(send_path)
             delirius_dl._rm(path)
 
     if spotify_url:

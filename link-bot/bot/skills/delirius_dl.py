@@ -295,6 +295,16 @@ async def _to_whatsapp_ogg(path: str) -> str | None:
     return None
 
 
+async def _send_audio_track(ctx: MessageContext, path: str, caption: str = ""):
+    """Envia música como áudio normal, preservando o MP3 quando possível."""
+    if ctx.client is not None and hasattr(ctx.client, "send_audio"):
+        await ctx.client.send_audio(ctx.chat_jid, path, ptt=False)
+        if caption:
+            await ctx.reply(caption)
+        return
+    await ctx.reply_media(path, caption=caption)
+
+
 # ── Handlers por plataforma ───────────────────────────────────────────────────
 
 async def _yt(ctx: MessageContext, url: str, modo: str, caption_extra: str = ""):
@@ -334,14 +344,12 @@ async def _yt(ctx: MessageContext, url: str, modo: str, caption_extra: str = "")
     if not path:
         await ctx.reply("baixei o link mas não consegui salvar o arquivo")
         return
-    send_path = await _to_whatsapp_ogg(path) if ext == "mp3" else path
-    if ext == "mp3" and not send_path:
-        send_path = path
     try:
-        await ctx.reply_media(send_path, caption=caption)
+        if ext == "mp3":
+            await _send_audio_track(ctx, path, caption=caption)
+        else:
+            await ctx.reply_media(path, caption=caption)
     finally:
-        if send_path != path:
-            _rm(send_path)
         _rm(path)
 
 
@@ -374,12 +382,9 @@ async def _spotify(ctx: MessageContext, url: str, *, fallback_query: str = "", p
             return
         await ctx.reply("não consegui baixar o arquivo")
         return
-    send_path = await _to_whatsapp_ogg(path) or path
     try:
-        await ctx.reply_media(send_path, caption=caption)
+        await _send_audio_track(ctx, path, caption=caption)
     finally:
-        if send_path != path:
-            _rm(send_path)
         _rm(path)
 
 
