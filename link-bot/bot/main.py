@@ -748,6 +748,8 @@ class LinkBot:
         # Grupo: só responde a !comando ou @menção explícita
         if is_group:
             mentioned = self._is_bot_mentioned(msg)
+            my_user = getattr(self.my_jid, "User", "") if self.my_jid else ""
+            log.info(f"[grupo] text={repr((text or '')[:60])} mentioned={mentioned} my_user={my_user}")
             if not (text or "").strip().startswith("!") and not mentioned:
                 return
 

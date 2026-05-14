@@ -215,7 +215,10 @@ function requireConnected(req, res, next) {
 }
 
 app.get("/status", (req, res) => {
-    res.json({ ok: true, connected, hasQr: !!qrString });
+    const user = sock?.user;
+    const jid  = user?.id || "";
+    const number = jid.split(":")[0].split("@")[0];
+    res.json({ ok: true, connected, hasQr: !!qrString, jid, number });
 });
 
 app.get("/qr", async (req, res) => {
