@@ -73,19 +73,21 @@ class WhatsAppClient:
     def _b64(path: str) -> str:
         return base64.b64encode(Path(path).read_bytes()).decode()
 
-    async def send_message(self, jid, text, quoted_id: str = "") -> _MsgResp:
+    async def send_message(self, jid, text, quoted_id: str = "", quoted_sender: str = "") -> _MsgResp:
         if text is None:
             return _MsgResp()
         http = self._client()
         payload: dict = {"jid": self._jid_str(jid), "text": str(text)}
         if quoted_id:
             payload["quoted_id"] = quoted_id
+        if quoted_sender:
+            payload["quoted_sender"] = quoted_sender
         resp = await http.post("/send/text", json=payload)
         resp.raise_for_status()
         data = resp.json()
         return _MsgResp(data.get("id", ""))
 
-    async def send_image(self, jid, path: str, caption: str = "", quoted_id: str = "") -> _MsgResp:
+    async def send_image(self, jid, path: str, caption: str = "", quoted_id: str = "", quoted_sender: str = "") -> _MsgResp:
         ext = Path(path).suffix.lower().lstrip(".")
         mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
                 "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
@@ -98,11 +100,13 @@ class WhatsAppClient:
         }
         if quoted_id:
             payload["quoted_id"] = quoted_id
+        if quoted_sender:
+            payload["quoted_sender"] = quoted_sender
         resp = await http.post("/send/image", json=payload)
         resp.raise_for_status()
         return _MsgResp(resp.json().get("id", ""))
 
-    async def send_audio(self, jid, path: str, ptt: bool = False, quoted_id: str = ""):
+    async def send_audio(self, jid, path: str, ptt: bool = False, quoted_id: str = "", quoted_sender: str = ""):
         ext = path.rsplit(".", 1)[-1].lower() if "." in path else "ogg"
         mime_map = {"mp3": "audio/mpeg", "m4a": "audio/mp4", "wav": "audio/wav", "aac": "audio/aac"}
         mimetype = mime_map.get(ext, "audio/ogg; codecs=opus")
@@ -115,14 +119,18 @@ class WhatsAppClient:
         }
         if quoted_id:
             payload["quoted_id"] = quoted_id
+        if quoted_sender:
+            payload["quoted_sender"] = quoted_sender
         resp = await http.post("/send/audio", json=payload)
         resp.raise_for_status()
 
-    async def send_sticker(self, jid, path: str, quoted_id: str = ""):
+    async def send_sticker(self, jid, path: str, quoted_id: str = "", quoted_sender: str = ""):
         http = self._client()
         payload: dict = {"jid": self._jid_str(jid), "base64": self._b64(path)}
         if quoted_id:
             payload["quoted_id"] = quoted_id
+        if quoted_sender:
+            payload["quoted_sender"] = quoted_sender
         resp = await http.post("/send/sticker", json=payload)
         resp.raise_for_status()
 
@@ -171,18 +179,19 @@ class WhatsAppClient:
             return None
 
     async def get_me(self):
-        """Retorna objeto com JID do bot (número conectado)."""
+        """Retorna objeto com JID e LID do bot."""
         http = self._client()
         try:
             resp = await http.get("/status")
             resp.raise_for_status()
             data = resp.json()
             number = data.get("number", "") or data.get("jid", "")
+            lid = data.get("lid", "")
             if number:
-                return type("Me", (), {"JID": build_jid(number)})()
+                return type("Me", (), {"JID": build_jid(number), "LID": lid})()
         except Exception:
             pass
-        return type("Me", (), {"JID": build_jid("unknown")})()
+        return type("Me", (), {"JID": build_jid("unknown"), "LID": ""})()
 
     async def is_connected(self) -> bool:
         try:

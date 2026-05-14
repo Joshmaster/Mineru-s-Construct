@@ -216,9 +216,11 @@ function requireConnected(req, res, next) {
 
 app.get("/status", (req, res) => {
     const user = sock?.user;
-    const jid  = user?.id || "";
+    const jid    = user?.id  || "";
+    const lidFull = user?.lid || "";
     const number = jid.split(":")[0].split("@")[0];
-    res.json({ ok: true, connected, hasQr: !!qrString, jid, number });
+    const lid    = lidFull.split(":")[0].split("@")[0];
+    res.json({ ok: true, connected, hasQr: !!qrString, jid, number, lid });
 });
 
 app.get("/qr", async (req, res) => {
@@ -243,16 +245,18 @@ app.get("/qr/text", (req, res) => {
     res.json({ ok: true, qr: qrString });
 });
 
-function buildQuoted(jid, quotedId) {
+function buildQuoted(jid, quotedId, sender) {
     if (!quotedId) return undefined;
-    return { key: { id: quotedId, remoteJid: jid, fromMe: false }, message: { conversation: "" } };
+    const key = { id: quotedId, remoteJid: jid, fromMe: false };
+    if (sender && jid.endsWith("@g.us")) key.participant = sender;
+    return { key, message: { conversation: "" } };
 }
 
 app.post("/send/text", requireConnected, async (req, res) => {
-    const { jid, text, quoted_id } = req.body;
+    const { jid, text, quoted_id, quoted_sender } = req.body;
     if (!jid || text == null) return res.status(400).json({ ok: false, error: "jid e text obrigatórios" });
     try {
-        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id) } : {};
+        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id, quoted_sender) } : {};
         const result = await sock.sendMessage(jid, { text: String(text) }, opts);
         res.json({ ok: true, id: result?.key?.id || "" });
     } catch (e) {
@@ -262,11 +266,11 @@ app.post("/send/text", requireConnected, async (req, res) => {
 });
 
 app.post("/send/image", requireConnected, async (req, res) => {
-    const { jid, base64, caption = "", mimeType = "image/jpeg", quoted_id } = req.body;
+    const { jid, base64, caption = "", mimeType = "image/jpeg", quoted_id, quoted_sender } = req.body;
     if (!jid || !base64) return res.status(400).json({ ok: false, error: "jid e base64 obrigatórios" });
     try {
         const buf = Buffer.from(base64, "base64");
-        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id) } : {};
+        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id, quoted_sender) } : {};
         const result = await sock.sendMessage(jid, { image: buf, caption, mimetype: mimeType }, opts);
         res.json({ ok: true, id: result?.key?.id || "" });
     } catch (e) {
@@ -276,12 +280,12 @@ app.post("/send/image", requireConnected, async (req, res) => {
 });
 
 app.post("/send/audio", requireConnected, async (req, res) => {
-    const { jid, base64, ptt = false, mimetype = "audio/ogg; codecs=opus", quoted_id } = req.body;
+    const { jid, base64, ptt = false, mimetype = "audio/ogg; codecs=opus", quoted_id, quoted_sender } = req.body;
     if (!jid || !base64) return res.status(400).json({ ok: false, error: "jid e base64 obrigatórios" });
     console.log(`send/audio → jid=${jid} ptt=${ptt} mime=${mimetype} size=${base64.length}`);
     try {
         const buf = Buffer.from(base64, "base64");
-        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id) } : {};
+        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id, quoted_sender) } : {};
         const result = await sock.sendMessage(jid, { audio: buf, ptt: !!ptt, mimetype }, opts);
         console.log(`send/audio OK → id=${result?.key?.id} remoteJid=${result?.key?.remoteJid}`);
         res.json({ ok: true, id: result?.key?.id || "" });
@@ -292,11 +296,11 @@ app.post("/send/audio", requireConnected, async (req, res) => {
 });
 
 app.post("/send/sticker", requireConnected, async (req, res) => {
-    const { jid, base64, quoted_id } = req.body;
+    const { jid, base64, quoted_id, quoted_sender } = req.body;
     if (!jid || !base64) return res.status(400).json({ ok: false, error: "jid e base64 obrigatórios" });
     try {
         const buf = Buffer.from(base64, "base64");
-        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id) } : {};
+        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id, quoted_sender) } : {};
         const result = await sock.sendMessage(jid, { sticker: buf }, opts);
         res.json({ ok: true, id: result?.key?.id || "" });
     } catch (e) {

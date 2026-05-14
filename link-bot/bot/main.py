@@ -195,6 +195,7 @@ class LinkBot:
 
         # Bot identity
         self.my_jid = None
+        self.my_lid = ""  # LID usado em menções de grupo (@lid)
 
         # Lembretes aguardando confirmação de reação:
         # {stanza_id: {text, target_jid_str, next_retry, retry_count}}
@@ -225,6 +226,7 @@ class LinkBot:
         try:
             me = await self.client.get_me()
             self.my_jid = me.JID
+            self.my_lid = getattr(me, "LID", "")
         except Exception:
             pass
         await self.scheduler.start()
@@ -698,17 +700,30 @@ class LinkBot:
 
     def _is_bot_mentioned(self, msg: dict) -> bool:
         my_user = getattr(self.my_jid, "User", "") if self.my_jid else ""
-        if not my_user:
+        if not my_user or my_user == "unknown":
             return False
-        text = msg.get("text", "")
-        if f"@{my_user}" in (text or ""):
-            return True
+        text = msg.get("text", "") or ""
+
+        # checa @numero no texto (com e sem código de país)
+        short = my_user.lstrip("0")[-10:]  # últimos 10 dígitos
+        for part in (my_user, short):
+            if f"@{part}" in text:
+                return True
+
+        # checa mentionedJid no rawMessage (inclui LID @lid)
+        my_lid = self.my_lid or ""
         raw = msg.get("rawMessage") or {}
         for field in ("extendedTextMessage", "imageMessage", "videoMessage", "audioMessage"):
             obj = raw.get(field) or {}
             ctx = obj.get("contextInfo") or {}
-            for jid in (ctx.get("mentionedJid") or []):
-                if my_user in str(jid):
+            mentioned = ctx.get("mentionedJid") or []
+            log.info(f"[grupo] mentionedJid={mentioned} my_user={my_user} my_lid={my_lid}")
+            for jid in mentioned:
+                jid_str = str(jid)
+                if my_user in jid_str or short in jid_str:
+                    return True
+                # LID: "26565077414035@lid"
+                if my_lid and my_lid in jid_str:
                     return True
         return False
 
@@ -747,6 +762,14 @@ class LinkBot:
 
         # Grupo: só responde a !comando ou @menção explícita
         if is_group:
+            # refresh lazy do JID/LID se ainda desconhecido
+            if not self.my_jid or getattr(self.my_jid, "User", "unknown") == "unknown":
+                try:
+                    me = await self.client.get_me()
+                    self.my_jid = me.JID
+                    self.my_lid = getattr(me, "LID", "")
+                except Exception:
+                    pass
             mentioned = self._is_bot_mentioned(msg)
             my_user = getattr(self.my_jid, "User", "") if self.my_jid else ""
             log.info(f"[grupo] text={repr((text or '')[:60])} mentioned={mentioned} my_user={my_user}")
@@ -883,7 +906,7 @@ class LinkBot:
                 reply = await asyncio.get_event_loop().run_in_executor(
                     None, _llm.chat, sender_number, text, nome_usuario
                 )
-                await self.client.send_message(chat_jid, reply)
+                await self.client.send_message(chat_jid, reply, quoted_id=message_id, quoted_sender=sender_jid_str if is_group else "")
                 log.info(f"📤 [id={sender_number} phone/chat={chat_number}] {reply[:120]}")
             except Exception as e:
                 log.error(f"LLM fallback falhou: {e}")

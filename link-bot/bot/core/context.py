@@ -43,13 +43,23 @@ class MessageContext:
     config: Any = None              # dict de config
     router: Any = None              # pra skill /ajuda listar comandos
 
+    def _sender_str(self) -> str:
+        jid = self.sender_jid
+        if jid is None:
+            return ""
+        return str(jid) if not hasattr(jid, "User") else f"{jid.User}@{getattr(jid, 'Server', 's.whatsapp.net')}"
+
     async def reply(self, text: str):
         """Envia resposta de texto pro chat, citando a mensagem original."""
         if self.client is None:
             print(f"[reply mock] {text}")
             return
         try:
-            await self.client.send_message(self.chat_jid, text, quoted_id=self.message_id or "")
+            await self.client.send_message(
+                self.chat_jid, text,
+                quoted_id=self.message_id or "",
+                quoted_sender=self._sender_str() if self.is_group else "",
+            )
         except Exception as e:
             print(f"[reply err] {e}")
 
@@ -92,7 +102,12 @@ class MessageContext:
             return
         try:
             await asyncio.wait_for(
-                self.client.send_image(self.chat_jid, file_path, caption=caption or None, quoted_id=self.message_id or ""),
+                self.client.send_image(
+                    self.chat_jid, file_path,
+                    caption=caption or None,
+                    quoted_id=self.message_id or "",
+                    quoted_sender=self._sender_str() if self.is_group else "",
+                ),
                 timeout=12,
             )
         except asyncio.TimeoutError:
@@ -115,7 +130,11 @@ class MessageContext:
         if self.client is None:
             return
         try:
-            await self.client.send_audio(self.chat_jid, file_path, ptt=True, quoted_id=self.message_id or "")
+            await self.client.send_audio(
+                self.chat_jid, file_path, ptt=True,
+                quoted_id=self.message_id or "",
+                quoted_sender=self._sender_str() if self.is_group else "",
+            )
         except Exception as e:
             print(f"[send_audio_ptt err] {e}")
 
@@ -126,17 +145,18 @@ class MessageContext:
             print(f"[reply_media mock] {file_path} (sticker={as_sticker})")
             return
         qid = self.message_id or ""
+        qsender = self._sender_str() if self.is_group else ""
         try:
             ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
             if as_sticker:
                 if hasattr(self.client, "send_sticker"):
-                    await self.client.send_sticker(self.chat_jid, file_path, quoted_id=qid)
+                    await self.client.send_sticker(self.chat_jid, file_path, quoted_id=qid, quoted_sender=qsender)
                 else:
-                    await self.client.send_message(self.chat_jid, file_path, quoted_id=qid)
+                    await self.client.send_message(self.chat_jid, file_path, quoted_id=qid, quoted_sender=qsender)
                 if caption:
                     await self.client.send_message(self.chat_jid, caption)
             elif ext in ("mp3", "ogg", "m4a", "wav", "aac", "opus"):
-                await self.client.send_audio(self.chat_jid, file_path, ptt=False, quoted_id=qid)
+                await self.client.send_audio(self.chat_jid, file_path, ptt=False, quoted_id=qid, quoted_sender=qsender)
                 if caption:
                     await self.client.send_message(self.chat_jid, caption)
             else:
