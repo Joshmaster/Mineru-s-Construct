@@ -26,10 +26,10 @@ except ImportError:
     OPENROUTER_KEYS = []
     _GROQ_KEYS_FROM_ENV = []
 OPENROUTER_MODELS = [
+    "meta-llama/llama-3.1-8b-instant:free",
     "google/gemini-2.0-flash-exp:free",
     "meta-llama/llama-3.3-70b-instruct:free",
     "mistralai/mistral-small-3.2-24b-instruct:free",
-    "google/gemma-3-27b-it:free",
 ]
 
 GROQ_KEYS = _GROQ_KEYS_FROM_ENV
@@ -211,7 +211,7 @@ def _strip_thinking(text: str) -> str:
 
 # ── OpenRouter ───────────────────────────────────────────────────────────────
 
-def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float = 0.85, timeout: int = 20) -> Optional[str]:
+def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float = 0.85, timeout: int = 10) -> Optional[str]:
     if _cloud_blocked("openrouter"):
         log.debug("OpenRouter bloqueado pelo circuit breaker")
         return None
@@ -425,8 +425,8 @@ def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
         {"role": "user", "content": message},
     ]
     raw = (
-        _call_openrouter(messages_full, max_tokens=80, temperature=0.0)
-        or _call_ollama(messages_short, think=False, num_predict=60, temperature=0.0, timeout=25)
+        _call_openrouter(messages_full, max_tokens=80, temperature=0.0, timeout=6)
+        or _call_ollama(messages_short, think=False, num_predict=60, temperature=0.0, timeout=15)
     )
     data = _json_from_text(raw or "")
     if not isinstance(data, dict):
@@ -730,10 +730,10 @@ def chat(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
 
     messages = [{"role": "system", "content": system}] + _get_history(user_id)
 
-    # Groq (rápido) → OpenRouter → Delirius free
+    # Delirius (free, sem auth) → OpenRouter → Ollama
     raw_reply = (
-        _call_openrouter(messages)
-        or _call_delirius_llm(user_message)
+        _call_delirius_llm(user_message)
+        or _call_openrouter(messages)
     )
     if not raw_reply:
         # Ollama local: usa persona compacta + últimas 4 msgs para caber no timeout
