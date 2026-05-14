@@ -55,6 +55,8 @@ token_usage.log
 .mastersword_pid
 .mastersword_processing.lock
 .proxy_pid
+.itch_monitor_pid
+itch_state.json
 DISCORD/.bot_pid
 DISCORD/.supervisor_pid
 
