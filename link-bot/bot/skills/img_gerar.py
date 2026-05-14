@@ -1,4 +1,4 @@
-"""Skill: !img — gera imagem via OpenRouter e envia como mídia."""
+"""Skill: !img — gera imagem via Pollinations (padrão) ou OpenRouter (fallback)."""
 
 import asyncio
 import base64
@@ -7,6 +7,7 @@ import os
 import re
 import tempfile
 import time
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -20,7 +21,7 @@ except Exception:
     OPENROUTER_KEYS = []
 
 
-MODELOS = {
+OPENROUTER_MODELOS = {
     "gemini": {
         "nome": "Gemini / Nano Banana",
         "id": "google/gemini-2.5-flash-image",
@@ -30,9 +31,17 @@ MODELOS = {
         "id": "openai/gpt-5-image",
     },
 }
-DEFAULT_MODEL = "gemini"
+DEFAULT_OPENROUTER_MODEL = "gemini"
 DEFAULT_ASPECT = "1:1"
 ASPECT_RE = re.compile(r"^(1:1|16:9|9:16|4:3|3:4)$")
+
+ASPECT_TO_SIZE = {
+    "1:1":  (1080, 1080),
+    "16:9": (1280, 720),
+    "9:16": (720, 1280),
+    "4:3":  (1080, 810),
+    "3:4":  (810, 1080),
+}
 
 
 def _load_dotenv_keys() -> list[str]:
@@ -81,22 +90,28 @@ def _is_owner(ctx: MessageContext) -> bool:
         return False
 
 
-def _parse_args(text: str) -> tuple[str, str, str]:
+def _parse_args(text: str) -> tuple[str, str, str, bool]:
+    """Retorna (modelo_openrouter, aspect, prompt, forcar_openrouter)."""
     prompt = (text or "").strip()
-    modelo = DEFAULT_MODEL
+    modelo = DEFAULT_OPENROUTER_MODEL
     aspect = DEFAULT_ASPECT
+    forcar_openrouter = False
 
     def repl_model(m):
-        nonlocal modelo
+        nonlocal modelo, forcar_openrouter
         raw = m.group(1).strip().lower()
         if raw in {"1", "gemini", "nano", "banana", "nanobanana"}:
             modelo = "gemini"
+            forcar_openrouter = True
         elif raw in {"2", "openai", "chatgpt", "gpt"}:
             modelo = "openai"
+            forcar_openrouter = True
+        elif raw in {"openrouter", "or"}:
+            forcar_openrouter = True
         return " "
 
-    prompt = re.sub(r"(?i)\b(?:modelo|model)\s*[:=]\s*(gemini|nano|banana|nanobanana|openai|chatgpt|gpt|1|2)\b", repl_model, prompt)
-    prompt = re.sub(r"(?i)(?:^|\s)--?(gemini|nano|banana|nanobanana|openai|chatgpt|gpt)\b", repl_model, prompt)
+    prompt = re.sub(r"(?i)\b(?:modelo|model)\s*[:=]\s*(gemini|nano|banana|nanobanana|openai|chatgpt|gpt|openrouter|or|1|2)\b", repl_model, prompt)
+    prompt = re.sub(r"(?i)(?:^|\s)--?(gemini|nano|banana|nanobanana|openai|chatgpt|gpt|openrouter|or)\b", repl_model, prompt)
 
     def repl_aspect(m):
         nonlocal aspect
@@ -108,7 +123,28 @@ def _parse_args(text: str) -> tuple[str, str, str]:
     prompt = re.sub(r"(?i)\b(?:ar|aspect|aspect_ratio|formato)\s*[:=]\s*(1:1|16:9|9:16|4:3|3:4)\b", repl_aspect, prompt)
     prompt = re.sub(r"(?<!\S)(1:1|16:9|9:16|4:3|3:4)(?!\S)", repl_aspect, prompt)
     prompt = re.sub(r"\s+", " ", prompt).strip(" -.,;:")
-    return modelo, aspect, prompt
+    return modelo, aspect, prompt, forcar_openrouter
+
+
+def _gerar_pollinations(prompt: str, aspect: str) -> tuple[str | None, str]:
+    width, height = ASPECT_TO_SIZE.get(aspect, (1080, 1080))
+    seed = int(time.time()) % 99999
+    url = (
+        "https://image.pollinations.ai/prompt/"
+        + urllib.parse.quote(prompt)
+        + f"?model=flux&width={width}&height={height}&seed={seed}&nologo=true"
+    )
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "HyruleBot/1.0"})
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            if resp.status != 200:
+                return None, f"Pollinations retornou {resp.status}"
+            data = resp.read()
+        out = Path(tempfile.gettempdir()) / f"hyrule_img_{int(time.time())}_{time.time_ns()}.png"
+        out.write_bytes(data)
+        return str(out), f"Pollinations Flux · {aspect}"
+    except Exception as e:
+        return None, str(e)
 
 
 def _extract_data_url(data: dict) -> tuple[str | None, str]:
@@ -137,12 +173,12 @@ def _save_data_url(data_url: str, output_file: Path):
     output_file.write_bytes(base64.b64decode(encoded))
 
 
-def _gerar_imagem(prompt: str, modelo_key: str, aspect_ratio: str) -> tuple[str | None, str]:
+def _gerar_openrouter(prompt: str, modelo_key: str, aspect_ratio: str) -> tuple[str | None, str]:
     keys = _openrouter_keys()
     if not keys:
         return None, "OPENROUTER_API_KEY/OPENROUTER_KEYS não configurado."
 
-    modelo = MODELOS[modelo_key]
+    modelo = OPENROUTER_MODELOS[modelo_key]
     payload = {
         "model": modelo["id"],
         "messages": [{"role": "user", "content": prompt}],
@@ -232,7 +268,6 @@ async def handle(ctx: MessageContext):
         await ctx.reply("manda assim: `!img um castelo de Hyrule ao pôr do sol`")
         return
 
-    # Overlay opcional: "prompt :: texto sobre a imagem"
     overlay_text = ""
     if "::" in raw:
         parts = raw.split("::", 1)
@@ -241,10 +276,22 @@ async def handle(ctx: MessageContext):
 
     await ctx.typing()
 
-    modelo_key, aspect, prompt_clean = _parse_args(raw)
-    path, info = await asyncio.get_event_loop().run_in_executor(
-        None, _gerar_imagem, prompt_clean or raw, modelo_key, aspect
-    )
+    modelo_key, aspect, prompt_clean, forcar_openrouter = _parse_args(raw)
+    prompt = prompt_clean or raw
+
+    path = info = None
+
+    if not forcar_openrouter:
+        path, info = await asyncio.get_event_loop().run_in_executor(
+            None, _gerar_pollinations, prompt, aspect
+        )
+        if not path:
+            log.warning(f"Pollinations falhou ({info}), tentando OpenRouter...")
+
+    if not path:
+        path, info = await asyncio.get_event_loop().run_in_executor(
+            None, _gerar_openrouter, prompt, modelo_key, aspect
+        )
 
     if not path:
         await ctx.reply(info or "não consegui gerar a imagem agora")
@@ -265,7 +312,7 @@ async def handle(ctx: MessageContext):
 
 SKILL = Skill(
     name="img_gerar",
-    description="*!img <prompt>* — gera imagem (Meta AI ou OpenRouter, só dono)",
+    description="*!img <prompt>* — gera imagem (Pollinations padrão, só dono)",
     triggers=["!img"],
     handler=handle,
     category="midia",
