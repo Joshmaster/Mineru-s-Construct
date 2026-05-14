@@ -148,15 +148,6 @@ async def handle_fala(ctx: MessageContext):
 
     await ctx.typing()
 
-    # Melhora o texto via LLM antes de converter em fala
-    try:
-        from bot.core.llm import rewrite_for_tts
-        improved = await asyncio.get_event_loop().run_in_executor(None, rewrite_for_tts, text)
-        if improved and improved != text:
-            text = improved
-    except Exception:
-        pass
-
     mp3 = Path(tempfile.gettempdir()) / f"hyrule_tts_{int(time.time())}.mp3"
     ogg = mp3.with_suffix(".ogg")
     try:
