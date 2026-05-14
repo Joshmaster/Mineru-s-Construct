@@ -207,23 +207,11 @@ async def handle_stickertext(ctx: MessageContext):
     animado = ctx.raw_text.lower().startswith("!attp")
     await ctx.typing()
 
-    if animado:
-        data = _get_json("/canvas/attp", {"text": text}, timeout=60)
-        ext = "gif"
-    else:
-        data = _get_json("/canvas/ttp", {"text": text})
-        ext = "png"
+    endpoint = "/canvas/attp" if animado else "/canvas/ttp"
+    ext = "gif" if animado else "png"
+    api_url = f"{BASE}{endpoint}?" + urllib.parse.urlencode({"text": text})
 
-    if not data:
-        await ctx.reply("API fora agora")
-        return
-
-    media_url = _extract_url(data)
-    if not media_url:
-        await ctx.reply(f"não achei a imagem 🌀\n`{str(data)[:150]}`")
-        return
-
-    path = await _baixar(media_url, ext, timeout=60)
+    path = await _baixar(api_url, ext, timeout=60)
     if not path:
         await ctx.reply("não consegui baixar o sticker")
         return

@@ -83,7 +83,7 @@ def _gerar_imagem():
         ]
         col2 = [
             ("🎨 Mídia",  TEAL),
-            ("  !yt  !ytv  !spot  !ig  !x", WHITE),
+            ("  !yt  !spot  !ig  !img", WHITE),
             ("  !fala · !tt · !gif · !print", WHITE),
             ("  !fig  (envia imagem junto)", WHITE),
             ("", None),
@@ -176,10 +176,8 @@ async def handle(ctx: MessageContext):
             ("🎨", "*MÍDIA*", [
                 "!img <prompt>  _— gera imagem_",
                 "!yt <link>  _— áudio YouTube_",
-                "!ytv <link>  _— vídeo YouTube_",
-                "!spot <link>  _— baixar Spotify_",
+                "!spot <busca ou link>  _— baixar Spotify_",
                 "!ig <link>  _— baixar Instagram_",
-                "!x <link>  _— baixar Twitter/X_",
                 "!fala <texto>  _— voz (TTS)_",
                 "!tt <texto>  _— sticker com texto_",
                 "!gif <busca>  _— GIF do Tenor_",
