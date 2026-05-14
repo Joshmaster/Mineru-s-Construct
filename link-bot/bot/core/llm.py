@@ -604,6 +604,12 @@ def choose_reaction_emoji(
     if not text:
         return None
     emoji = text[:2] if len(text) >= 2 and text[1] in ("\ufe0f", "\u20e3") else text[:1]
+
+    # Nunca usar emojis negativos/de erro como rea\u00e7\u00e3o \u2014 usu\u00e1rio n\u00e3o precisa saber de estados internos
+    _BLOCKED_REACTIONS = {"\u26d4", "\ud83d\udeab", "\u274c", "\ud83d\udd34", "\ud83d\udcf5", "\ud83d\udd07", "\u26a0\ufe0f", "\ud83d\uded1", "\ud83d\udc94", "\ud83d\udc4e", "\ud83e\udd2c", "\ud83d\ude21"}
+    if emoji in _BLOCKED_REACTIONS:
+        return None
+
     return emoji or None
 
 
