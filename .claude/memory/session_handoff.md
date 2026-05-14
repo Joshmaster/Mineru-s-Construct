@@ -69,6 +69,19 @@ type: project
 - Não há backup local detectado com token Discord válido (`local_secrets/tokens.md` não contém token no formato esperado; `.pyc` já foi regenerado com o token atual)
 - Próximo passo: atualizar `DISCORD_TOKEN` em `hyrule_env.py` com token válido e reiniciar Discord bot
 
+### Discord token — atualizado localmente 2026-05-13
+- OWNER gerou token novo e pediu para salvar no servidor
+- `DISCORD_TOKEN` atualizado em `hyrule_env.py` e também registrado em `local_secrets/tokens.md`
+- Token validado com login real do Discord bot; bot voltou online como `LINK e Adventure kit ⚔ 📢🔊#6867`
+- Discord bot reiniciado após token novo; PID atual `171844`
+- **Não mexer nesse token em próximas sessões**, a menos que OWNER peça explicitamente
+- **Nunca commitar `hyrule_env.py` nem `local_secrets/`**; ambos estão ignorados no git e devem continuar local-only
+
+### Discord !spot — feedback visual 2026-05-13
+- OWNER notou que o bot parecia não reagir aos pedidos de `!spot`
+- `DISCORD/link_discord.py` agora reage ao comando com `⚔️` ao iniciar, `✅` quando envia o áudio, e `⚠️` quando falta argumento ou falha o download
+- Discord bot reiniciado após ajuste; PID atual `172329`
+
 ### Meta AI proxy — investigação e descarte
 - Implementamos `bot/core/meta_ai.py` (proxy singleton via Baileys)
 - Investigação completa: Baileys retorna 200 OK mas mensagem não chega ao Meta AI
@@ -104,7 +117,7 @@ type: project
 - Bridge Baileys: rodando (porta 7334, PID `159181`, conectado)
 - WhatsApp bot: rodando (PID `167948`, logs em `link-bot/.linkbot/whatsapp_err.log`)
 - Supervisor: rodando (PID `157898`)
-- Discord bot: rodando (PID `168455`)
+- Discord bot: rodando (PID `172329`)
 - TRIFORCE daemon: rodando (PID `157912`)
 - MAJORA watcher/Codex: rodando com `codex-cli 0.130.0`
 - MASTERSWORD watcher: rodando (PID `157914`)

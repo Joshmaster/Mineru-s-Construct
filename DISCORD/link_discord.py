@@ -138,6 +138,13 @@ def _get_ctx(autor: str) -> dict:
 _carregar_ctx()  # carrega ao iniciar
 
 
+async def _safe_react(message, emoji: str):
+    try:
+        await message.add_reaction(emoji)
+    except Exception as e:
+        print(f"[REACT] falhou {emoji}: {e}", flush=True)
+
+
 async def _discord_spot(message, autor: str, query: str):
     if delirius_dl is None:
         await message.channel.send("o módulo de música não carregou aqui")
@@ -147,8 +154,11 @@ async def _discord_spot(message, autor: str, query: str):
     query = (query or "").strip()
     if not query:
         await message.channel.send("manda o nome da música depois do !spot")
+        await _safe_react(message, "⚠️")
         registrar("OUT", "Link", autor, "manda o nome da música depois do !spot")
         return
+
+    await _safe_react(message, "⚔️")
 
     prefer_original = not delirius_dl._allows_alternate_version(query)
     spotify_url = ""
@@ -185,6 +195,7 @@ async def _discord_spot(message, autor: str, query: str):
         try:
             filename = "spot.ogg" if send_path.endswith(".ogg") else "spot.mp3"
             await message.channel.send(content=source_text, file=discord.File(send_path, filename=filename))
+            await _safe_react(message, "✅")
             registrar("OUT", "Link", autor, f"[ARQUIVO: {filename}] {source_text}")
             return True
         finally:
@@ -216,6 +227,7 @@ async def _discord_spot(message, autor: str, query: str):
                 return
 
     await message.channel.send("não consegui baixar essa música agora")
+    await _safe_react(message, "⚠️")
     registrar("OUT", "Link", autor, "não consegui baixar essa música agora")
 
 
