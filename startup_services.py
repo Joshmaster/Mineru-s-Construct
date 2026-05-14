@@ -302,7 +302,7 @@ def parar_itch_monitor():
     _matar_por_script("itch_monitor")
     pid = _ler_pid(ITCH_PID)
     if pid:
-        _matar_pid(pid, "itch_monitor")
+        _matar_pid(pid)
     ITCH_PID.unlink(missing_ok=True)
 
 

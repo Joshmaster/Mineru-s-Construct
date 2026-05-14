@@ -86,53 +86,49 @@ def _get(url: str) -> str | None:
         return None
 
 
-def _sel(html: str, *selectors: str) -> str | None:
-    """Extração CSS simples por classe (sem dependências externas)."""
-    for sel in selectors:
-        # .classe simples
-        m = re.search(r'class="[^"]*' + re.escape(sel.lstrip(".")) + r'[^"]*"[^>]*>([^<]+)', html)
-        if m:
-            return m.group(1).strip()
-    return None
+def _val_after_label(html: str, label: str) -> str | None:
+    """Extrai stat_value imediatamente antes de um stat_label."""
+    m = re.search(
+        r'stat_value[^>]*>([\$\d,\.]+)</div>\s*<div[^>]*stat_label[^>]*>' + re.escape(label),
+        html, re.I,
+    )
+    return m.group(1).strip() if m else None
 
 
 def scrape_funding(html: str) -> dict:
     data = {}
-    css_map = {
-        "arrecadado": [".fund_raised .money", ".raised_stat .money"],
-        "meta":       [".fund_goal .money", ".goal_stat .money"],
-        "porcentagem":[".fund_percent"],
-        "contribuidores": [".fund_contributors"],
-        "media":      [".fund_average .money"],
-        "maior":      [".fund_top .money"],
-    }
-    for campo, sels in css_map.items():
-        v = _sel(html, *sels)
+
+    # Raised (primary_stat → stat_value)
+    m = re.search(r'primary_stat[^>]*>.*?stat_value[^>]*>([\$\d,\.]+)', html, re.S)
+    if m:
+        data["arrecadado"] = m.group(1)
+
+    # Goal (right_box → stat_value)
+    m = re.search(r'right_box[^>]*>.*?stat_value[^>]*>([\$\d,\.]+)', html, re.S)
+    if m:
+        data["meta"] = m.group(1)
+
+    # Porcentagem (div com class progress_inner e style width)
+    m = re.search(r'style="width:\s*([\d\.]+)%"[^>]*class="progress_inner"|class="progress_inner"[^>]*style="width:\s*([\d\.]+)%"', html)
+    if m:
+        pct = m.group(1) or m.group(2)
+        data["porcentagem"] = f"{int(float(pct))}%"
+
+    # Contributors, average, top via label
+    for label, campo in [
+        ("contributors", "contribuidores"),
+        ("average contribution", "media"),
+        ("top contribution", "maior"),
+    ]:
+        v = _val_after_label(html, label)
         if v:
             data[campo] = v
 
-    # fallback por padrões textuais
-    if len([k for k in ["arrecadado", "meta"] if k in data]) < 2:
-        linhas = [l.strip() for l in html.split("\n") if l.strip()]
-        vd = [l for l in linhas if re.match(r"^\$[\d,]+\.?\d*$", l)]
-        vp = [l for l in linhas if re.match(r"^\d+%$", l)]
-        vi = [l for l in linhas if re.match(r"^\d+$", l) and int(l) < 100_000]
-        if len(vd) >= 2:
-            data.setdefault("arrecadado", vd[0])
-            data.setdefault("meta", vd[1])
-        if len(vd) >= 3:
-            data.setdefault("media", vd[2])
-        if len(vd) >= 4:
-            data.setdefault("maior", vd[3])
-        if vp:
-            data.setdefault("porcentagem", vp[0])
-        if vi:
-            data.setdefault("contribuidores", vi[0])
     return data
 
 
 def scrape_followers(html: str) -> str | None:
-    m = re.search(r"(\d+)\s*Followers", html)
+    m = re.search(r'stat_value[^>]*>(\d+)</div>\s*<div[^>]*stat_label[^>]*>Followers', html, re.I)
     return m.group(1) if m else None
 
 
