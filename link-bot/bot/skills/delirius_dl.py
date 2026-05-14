@@ -501,15 +501,26 @@ async def handle(ctx: MessageContext):
     url, tipo = detect_url(text)
 
     if not url:
-        command = (ctx.raw_text or "").strip().split(maxsplit=1)[0].lower()
-        # Trigger direto: !spot, !spotify, !spoty
-        if command in ("!spotify", "!spot", "!spoty") and ctx.args_text.strip():
-            await ctx.typing()
-            await _spotify_query(ctx, ctx.args_text.strip())
-            return
-        # Intenção natural via AI matcher: usa args_text se há menção a spotify/música
         args = ctx.args_text.strip()
-        if args and any(w in norm for w in ("spot", "spotify", "música", "musica", "song", "faixa", "track", "toca", "tocar", "ouvi", "play")):
+        # YouTube precisa de link — detecta intenção e pede URL
+        if any(w in norm for w in ("youtube", "youtu", " yt ", "ytmp")):
+            await ctx.reply("manda o link do YouTube junto 🔗")
+            return
+        # Instagram precisa de link
+        if any(w in norm for w in ("instagram", " ig ", "insta", "reels", "reel")):
+            await ctx.reply("manda o link do Instagram junto 🔗")
+            return
+        # Twitter/X precisa de link
+        if any(w in norm for w in ("twitter", " x.com", "/status/")):
+            await ctx.reply("manda o link do Twitter/X junto 🔗")
+            return
+        # Spotify aceita busca por texto — qualquer menção a música/spot vai pra cá
+        if args and any(w in norm for w in ("spot", "spotify", "música", "musica", "song", "faixa", "track", "toca", "tocar", "ouvi", "play", "baixa", "baixar", "manda")):
+            await ctx.typing()
+            await _spotify_query(ctx, args)
+            return
+        # args limpos vindos do AI matcher → assume Spotify
+        if args:
             await ctx.typing()
             await _spotify_query(ctx, args)
             return
@@ -519,10 +530,8 @@ async def handle(ctx: MessageContext):
             "_Spotify também aceita busca por texto._\n\n"
             "exemplos:\n"
             "`!yt https://youtu.be/...`\n"
-            "`!spot https://open.spotify.com/track/...`\n"
             "`!spot zelda lost woods`\n"
-            "`!ig https://instagram.com/reel/...`\n"
-            "`!x https://x.com/.../status/...`"
+            "`!ig https://instagram.com/reel/...`"
         )
         return
 

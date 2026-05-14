@@ -397,16 +397,23 @@ def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
     )
     system_full = (
         "Voce e um classificador de intencao para um bot WhatsApp.\n"
-        "Escolha uma skill SOMENTE quando a mensagem pede claramente uma acao dessa skill.\n"
-        "Se for conversa, pergunta pessoal, brincadeira, memoria, saudacao ou ambigua, use null.\n"
-        "Nao acione lembrete quando a pessoa disser 'lembra de mim' ou estiver perguntando se voce a conhece.\n"
-        "Responda apenas JSON valido no formato: {\"skill\": string|null, \"args\": string}.\n\n"
+        "O usuario pode pedir qualquer coisa em linguagem natural, sem usar comandos.\n"
+        "Seu trabalho: identificar qual skill executar E extrair os argumentos limpos.\n\n"
+        "REGRAS:\n"
+        "- Escolha a skill quando a mensagem indica claramente uma acao (baixar musica, gerar imagem, TTS, buscar gif, etc)\n"
+        "- Use null so para conversa pura, saudacao, pergunta pessoal ou ambiguidade total\n"
+        "- Em 'args': coloque APENAS o conteudo util para a skill — sem @mencoes, sem palavras de comando, sem nome da skill\n"
+        "  Exemplos: 'toca star wars no spotify' → args='star wars'; 'faz um gif de cachorro feliz' → args='cachorro feliz'\n"
+        "  'gera uma imagem de dragao' → args='dragao'; 'fala oi mundo' → args='oi mundo'\n"
+        "- Nao acione lembrete quando a pessoa perguntar se voce a conhece\n"
+        "Responda apenas JSON valido: {\"skill\": string|null, \"args\": string}.\n\n"
         f"Skills disponiveis:\n{catalog_full}"
     )
     system_short = (
-        "Classificador de intencao WhatsApp.\n"
+        "Classificador de intencao WhatsApp. Usuario fala em linguagem natural.\n"
         "Retorne APENAS JSON: {\"skill\": string|null, \"args\": string}.\n"
-        "Use null se for conversa, saudacao ou ambiguo.\n\n"
+        "args = conteudo util para a skill, sem @mencoes nem palavras de comando.\n"
+        "Use null so para conversa pura ou saudacao.\n\n"
         f"Skills:\n{catalog_short}"
     )
     messages_full = [

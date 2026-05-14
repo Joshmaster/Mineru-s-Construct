@@ -204,7 +204,7 @@ async def handle_stickertext(ctx: MessageContext):
         )
         return
 
-    animado = ctx.raw_text.lower().startswith("!attp")
+    animado = ctx.raw_text.lower().startswith("!attp") or "animado" in ctx.raw_text.lower()
     await ctx.typing()
 
     endpoint = "/canvas/attp" if animado else "/canvas/ttp"
