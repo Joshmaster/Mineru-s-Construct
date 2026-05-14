@@ -502,9 +502,16 @@ async def handle(ctx: MessageContext):
 
     if not url:
         command = (ctx.raw_text or "").strip().split(maxsplit=1)[0].lower()
+        # Trigger direto: !spot, !spotify, !spoty
         if command in ("!spotify", "!spot", "!spoty") and ctx.args_text.strip():
             await ctx.typing()
             await _spotify_query(ctx, ctx.args_text.strip())
+            return
+        # Intenção natural via AI matcher: usa args_text se há menção a spotify/música
+        args = ctx.args_text.strip()
+        if args and any(w in norm for w in ("spot", "spotify", "música", "musica", "song", "faixa", "track", "toca", "tocar", "ouvi", "play")):
+            await ctx.typing()
+            await _spotify_query(ctx, args)
             return
         await ctx.reply(
             "manda o link junto 🔗\n"

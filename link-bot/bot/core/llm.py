@@ -418,8 +418,8 @@ def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
         {"role": "user", "content": message},
     ]
     raw = (
-        _call_openrouter(messages_full, max_tokens=80, temperature=0.0)
-        or _call_groq(messages_full, max_tokens=80, temperature=0.0)
+        _call_groq(messages_full, max_tokens=80, temperature=0.0)
+        or _call_openrouter(messages_full, max_tokens=80, temperature=0.0)
         or _call_ollama(messages_short, think=False, num_predict=60, temperature=0.0, timeout=25)
     )
     data = _json_from_text(raw or "")
@@ -453,8 +453,8 @@ def extract_image_query(message: str, usuario: str = "") -> str | None:
         {"role": "user", "content": user},
     ]
     raw = (
-        _call_openrouter(messages, max_tokens=60, temperature=0.0)
-        or _call_groq(messages, max_tokens=60, temperature=0.0)
+        _call_groq(messages, max_tokens=60, temperature=0.0)
+        or _call_openrouter(messages, max_tokens=60, temperature=0.0)
         or _call_ollama(messages, think=False, num_predict=60, temperature=0.0, timeout=20)
     )
     data = _json_from_text(raw or "")
@@ -485,8 +485,8 @@ def spotify_search_queries(message: str) -> list[str]:
         {"role": "user", "content": message},
     ]
     raw = (
-        _call_openrouter(messages, max_tokens=120, temperature=0.0, timeout=12)
-        or _call_groq(messages, max_tokens=120, temperature=0.0, timeout=12)
+        _call_groq(messages, max_tokens=120, temperature=0.0, timeout=12)
+        or _call_openrouter(messages, max_tokens=120, temperature=0.0, timeout=12)
         or _call_ollama(messages, think=False, num_predict=100, temperature=0.0, timeout=25)
     )
     data = _json_from_text(raw or "")
@@ -686,8 +686,8 @@ def rewrite_for_tts(text: str) -> str:
         {"role": "user", "content": text},
     ]
     result = (
-        _call_openrouter(messages, max_tokens=300, temperature=0.7)
-        or _call_groq(messages, max_tokens=300, temperature=0.7)
+        _call_groq(messages, max_tokens=300, temperature=0.7)
+        or _call_openrouter(messages, max_tokens=300, temperature=0.7)
         or _call_ollama(messages, num_predict=200, temperature=0.7)
     )
     return result.strip() if result and result.strip() else text
