@@ -148,6 +148,15 @@ async def handle_fala(ctx: MessageContext):
 
     await ctx.typing()
 
+    # Corrige o texto via LLM antes de converter; mantém original se LLM falhar
+    try:
+        from bot.core.llm import rewrite_for_tts
+        improved = await asyncio.get_event_loop().run_in_executor(None, rewrite_for_tts, text)
+        if improved:
+            text = improved
+    except Exception:
+        pass
+
     mp3 = Path(tempfile.gettempdir()) / f"hyrule_tts_{int(time.time())}.mp3"
     ogg = mp3.with_suffix(".ogg")
     try:
@@ -163,7 +172,7 @@ async def handle_fala(ctx: MessageContext):
         return
 
     try:
-        await ctx.reply_media(str(ogg), caption="🎙️ " + text[:60])
+        await ctx.reply_media(str(ogg))
     finally:
         _rm(str(mp3)); _rm(str(ogg))
 
