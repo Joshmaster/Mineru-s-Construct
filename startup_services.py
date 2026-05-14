@@ -66,6 +66,11 @@ MASTERSWORD_SCRIPT = BASE / "watch_mastersword_queue.py"
 MASTERSWORD_PID    = BASE / ".mastersword_pid"
 MASTERSWORD_LOG    = BASE / "mastersword.log"
 
+# itch-monitor daemon
+ITCH_SCRIPT = BASE / "itch_monitor.py"
+ITCH_PID    = BASE / ".itch_monitor_pid"
+ITCH_LOG    = BASE / "itch_monitor.log"
+
 # Hyrule proxy
 PROXY_SCRIPT = BASE / "CLAUDE CODE" / "proxy.py"
 PROXY_PID    = BASE / ".proxy_pid"
@@ -222,6 +227,11 @@ def _mastersword_rodando() -> bool:
     return bool(pid) and _pid_ativo(pid)
 
 
+def _itch_monitor_rodando() -> bool:
+    pid = _ler_pid(ITCH_PID)
+    return bool(pid) and _pid_ativo(pid)
+
+
 def _proxy_rodando() -> bool:
     pid = _ler_pid(PROXY_PID)
     return bool(pid) and _pid_ativo(pid) and _porta_ativa(PROXY_PORT)
@@ -285,6 +295,15 @@ def parar_whatsapp():
     if pid:
         _matar_pid(pid)
     WHATSAPP_PID_FILE.unlink(missing_ok=True)
+
+
+def parar_itch_monitor():
+    print("Parando itch-monitor...")
+    _matar_por_script("itch_monitor")
+    pid = _ler_pid(ITCH_PID)
+    if pid:
+        _matar_pid(pid, "itch_monitor")
+    ITCH_PID.unlink(missing_ok=True)
 
 
 def parar_triforce_daemon():
@@ -414,6 +433,18 @@ def iniciar_whatsapp():
             print(f"  {linha.splitlines()[-1]}")
     except Exception:
         pass
+    return True
+
+
+def iniciar_itch_monitor():
+    print("Iniciando itch-monitor daemon...")
+    proc = _spawn(
+        [PYTHON, "-u", str(ITCH_SCRIPT)],
+        BASE,
+        ITCH_LOG,
+        ITCH_PID,
+    )
+    print(f"  PID {proc.pid}")
     return True
 
 
@@ -555,6 +586,11 @@ def cmd_start():
     else:
         iniciar_mastersword()
 
+    if _itch_monitor_rodando():
+        print(f"itch-monitor já rodando (PID {_ler_pid(ITCH_PID)}).")
+    else:
+        iniciar_itch_monitor()
+
 
 def cmd_restart(limpar: bool = True):
     """Para tudo, opcionalmente limpa memória, reinicia."""
@@ -565,6 +601,7 @@ def cmd_restart(limpar: bool = True):
     parar_triforce_daemon()
     parar_majora()
     parar_mastersword()
+    parar_itch_monitor()
     parar_proxy()
     time.sleep(1)
     if limpar:
@@ -577,6 +614,7 @@ def cmd_restart(limpar: bool = True):
     iniciar_triforce_daemon()
     iniciar_majora()
     iniciar_mastersword()
+    iniciar_itch_monitor()
     if limpar:
         _apagar_msgs_discord()
 
@@ -589,6 +627,7 @@ def cmd_stop():
     parar_triforce_daemon()
     parar_majora()
     parar_mastersword()
+    parar_itch_monitor()
     parar_proxy()
     print("Serviços parados.")
 
@@ -618,6 +657,9 @@ def cmd_status():
     pid_ms = _ler_pid(MASTERSWORD_PID)
     ms_ok = bool(pid_ms) and _pid_ativo(pid_ms)
     print(f"Mastersword:  {'● rodando' if ms_ok else '○ parado'}")
+
+    itch_ok = _itch_monitor_rodando()
+    print(f"itch-monitor: {'● rodando' if itch_ok else '○ parado'}")
 
     try:
         linhas = SUP_LOG.read_text(encoding="utf-8", errors="replace").strip().splitlines()

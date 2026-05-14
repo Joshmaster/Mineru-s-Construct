@@ -6,13 +6,12 @@ type: project
 
 ## Feito nesta sessao
 
-### Discord token — atualizado 2026-05-13/14
-- Token anterior estava sendo recusado com `401 Unauthorized`
-- OWNER enviou novo token via catbox; salvo em `hyrule_env.py` e `local_secrets/tokens.md`
-- Arquivo temporário apagado após leitura
-- Discord bot reiniciado; voltou online como `LINK e Adventure kit ⚔ 📢🔊#6867`
-- **Não mexer nesse token a menos que OWNER peça**
-- **Nunca commitar `hyrule_env.py` nem `local_secrets/`**
+### Gerenciamento de credenciais — como funciona (2026-05-14)
+- **Causa raiz dos tokens caindo:** havia um GitHub Actions workflow (`deploy-hyrule.yml`) que rodava `setup.sh` a cada push, sobrescrevendo `hyrule_env.py` com o token antigo dos GitHub Secrets
+- **Solução:** workflow removido (commit `d8dc645`). Pushes de código não afetam mais as credenciais
+- Credenciais vivem SOMENTE local: `hyrule_env.py` + `local_secrets/tokens.md`
+- Quando OWNER gerar token novo: salvar em `hyrule_env.py`, atualizar `local_secrets/tokens.md`, reiniciar bot
+- Token atual no arquivo pode estar desatualizado — OWNER confirma/fornece novo quando necessário
 
 ### !img — Pollinations como padrão (2026-05-14)
 - `link-bot/bot/skills/img_gerar.py` reescrito
