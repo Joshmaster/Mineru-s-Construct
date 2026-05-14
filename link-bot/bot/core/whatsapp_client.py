@@ -73,48 +73,57 @@ class WhatsAppClient:
     def _b64(path: str) -> str:
         return base64.b64encode(Path(path).read_bytes()).decode()
 
-    async def send_message(self, jid, text) -> _MsgResp:
+    async def send_message(self, jid, text, quoted_id: str = "") -> _MsgResp:
         if text is None:
             return _MsgResp()
         http = self._client()
-        resp = await http.post("/send/text", json={"jid": self._jid_str(jid), "text": str(text)})
+        payload: dict = {"jid": self._jid_str(jid), "text": str(text)}
+        if quoted_id:
+            payload["quoted_id"] = quoted_id
+        resp = await http.post("/send/text", json=payload)
         resp.raise_for_status()
         data = resp.json()
         return _MsgResp(data.get("id", ""))
 
-    async def send_image(self, jid, path: str, caption: str = "") -> _MsgResp:
+    async def send_image(self, jid, path: str, caption: str = "", quoted_id: str = "") -> _MsgResp:
         ext = Path(path).suffix.lower().lstrip(".")
         mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
                 "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/jpeg")
         http = self._client()
-        resp = await http.post("/send/image", json={
+        payload: dict = {
             "jid": self._jid_str(jid),
             "base64": self._b64(path),
             "caption": caption or "",
             "mimeType": mime,
-        })
+        }
+        if quoted_id:
+            payload["quoted_id"] = quoted_id
+        resp = await http.post("/send/image", json=payload)
         resp.raise_for_status()
         return _MsgResp(resp.json().get("id", ""))
 
-    async def send_audio(self, jid, path: str, ptt: bool = False):
+    async def send_audio(self, jid, path: str, ptt: bool = False, quoted_id: str = ""):
         ext = path.rsplit(".", 1)[-1].lower() if "." in path else "ogg"
         mime_map = {"mp3": "audio/mpeg", "m4a": "audio/mp4", "wav": "audio/wav", "aac": "audio/aac"}
         mimetype = mime_map.get(ext, "audio/ogg; codecs=opus")
         http = self._client()
-        resp = await http.post("/send/audio", json={
+        payload: dict = {
             "jid": self._jid_str(jid),
             "base64": self._b64(path),
             "ptt": ptt,
             "mimetype": mimetype,
-        })
+        }
+        if quoted_id:
+            payload["quoted_id"] = quoted_id
+        resp = await http.post("/send/audio", json=payload)
         resp.raise_for_status()
 
-    async def send_sticker(self, jid, path: str):
+    async def send_sticker(self, jid, path: str, quoted_id: str = ""):
         http = self._client()
-        resp = await http.post("/send/sticker", json={
-            "jid": self._jid_str(jid),
-            "base64": self._b64(path),
-        })
+        payload: dict = {"jid": self._jid_str(jid), "base64": self._b64(path)}
+        if quoted_id:
+            payload["quoted_id"] = quoted_id
+        resp = await http.post("/send/sticker", json=payload)
         resp.raise_for_status()
 
     async def send_reaction(self, jid, msg_id: str, emoji: str, from_me: bool = False):

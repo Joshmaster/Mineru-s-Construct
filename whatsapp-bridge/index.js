@@ -240,11 +240,17 @@ app.get("/qr/text", (req, res) => {
     res.json({ ok: true, qr: qrString });
 });
 
+function buildQuoted(jid, quotedId) {
+    if (!quotedId) return undefined;
+    return { key: { id: quotedId, remoteJid: jid, fromMe: false }, message: { conversation: "" } };
+}
+
 app.post("/send/text", requireConnected, async (req, res) => {
-    const { jid, text } = req.body;
+    const { jid, text, quoted_id } = req.body;
     if (!jid || text == null) return res.status(400).json({ ok: false, error: "jid e text obrigatórios" });
     try {
-        const result = await sock.sendMessage(jid, { text: String(text) });
+        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id) } : {};
+        const result = await sock.sendMessage(jid, { text: String(text) }, opts);
         res.json({ ok: true, id: result?.key?.id || "" });
     } catch (e) {
         console.error(`send/text erro: ${e.message}`);
@@ -253,11 +259,12 @@ app.post("/send/text", requireConnected, async (req, res) => {
 });
 
 app.post("/send/image", requireConnected, async (req, res) => {
-    const { jid, base64, caption = "", mimeType = "image/jpeg" } = req.body;
+    const { jid, base64, caption = "", mimeType = "image/jpeg", quoted_id } = req.body;
     if (!jid || !base64) return res.status(400).json({ ok: false, error: "jid e base64 obrigatórios" });
     try {
         const buf = Buffer.from(base64, "base64");
-        const result = await sock.sendMessage(jid, { image: buf, caption, mimetype: mimeType });
+        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id) } : {};
+        const result = await sock.sendMessage(jid, { image: buf, caption, mimetype: mimeType }, opts);
         res.json({ ok: true, id: result?.key?.id || "" });
     } catch (e) {
         console.error(`send/image erro: ${e.message}`);
@@ -266,16 +273,13 @@ app.post("/send/image", requireConnected, async (req, res) => {
 });
 
 app.post("/send/audio", requireConnected, async (req, res) => {
-    const { jid, base64, ptt = false, mimetype = "audio/ogg; codecs=opus" } = req.body;
+    const { jid, base64, ptt = false, mimetype = "audio/ogg; codecs=opus", quoted_id } = req.body;
     if (!jid || !base64) return res.status(400).json({ ok: false, error: "jid e base64 obrigatórios" });
     console.log(`send/audio → jid=${jid} ptt=${ptt} mime=${mimetype} size=${base64.length}`);
     try {
         const buf = Buffer.from(base64, "base64");
-        const result = await sock.sendMessage(jid, {
-            audio: buf,
-            ptt: !!ptt,
-            mimetype,
-        });
+        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id) } : {};
+        const result = await sock.sendMessage(jid, { audio: buf, ptt: !!ptt, mimetype }, opts);
         console.log(`send/audio OK → id=${result?.key?.id} remoteJid=${result?.key?.remoteJid}`);
         res.json({ ok: true, id: result?.key?.id || "" });
     } catch (e) {
@@ -285,11 +289,12 @@ app.post("/send/audio", requireConnected, async (req, res) => {
 });
 
 app.post("/send/sticker", requireConnected, async (req, res) => {
-    const { jid, base64 } = req.body;
+    const { jid, base64, quoted_id } = req.body;
     if (!jid || !base64) return res.status(400).json({ ok: false, error: "jid e base64 obrigatórios" });
     try {
         const buf = Buffer.from(base64, "base64");
-        const result = await sock.sendMessage(jid, { sticker: buf });
+        const opts = quoted_id ? { quoted: buildQuoted(jid, quoted_id) } : {};
+        const result = await sock.sendMessage(jid, { sticker: buf }, opts);
         res.json({ ok: true, id: result?.key?.id || "" });
     } catch (e) {
         console.error(`send/sticker erro: ${e.message}`);

@@ -147,13 +147,13 @@ async def _safe_react(message, emoji: str):
 
 async def _discord_spot(message, autor: str, query: str):
     if delirius_dl is None:
-        await message.channel.send("o módulo de música não carregou aqui")
+        await message.reply("o módulo de música não carregou aqui")
         registrar("OUT", "Link", autor, "o módulo de música não carregou aqui")
         return
 
     query = (query or "").strip()
     if not query:
-        await message.channel.send("manda o nome da música depois do !spot")
+        await message.reply("manda o nome da música depois do !spot")
         await _safe_react(message, "⚠️")
         registrar("OUT", "Link", autor, "manda o nome da música depois do !spot")
         return
@@ -193,7 +193,7 @@ async def _discord_spot(message, autor: str, query: str):
             return False
         try:
             filename = "spot.mp3"
-            await message.channel.send(content=source_text, file=discord.File(path, filename=filename))
+            await message.reply(content=source_text, file=discord.File(path, filename=filename))
             await _safe_react(message, "✅")
             registrar("OUT", "Link", autor, f"[ARQUIVO: {filename}] {source_text}")
             return True
@@ -223,7 +223,7 @@ async def _discord_spot(message, autor: str, query: str):
             if await _send_audio_from_media(media_url, f"{title}\nYouTube: {yt_url}"):
                 return
 
-    await message.channel.send("não consegui baixar essa música agora")
+    await message.reply("não consegui baixar essa música agora")
     await _safe_react(message, "⚠️")
     registrar("OUT", "Link", autor, "não consegui baixar essa música agora")
 
@@ -365,7 +365,7 @@ async def _tratar_lembrete_discord(message: discord.Message, texto_norm: str) ->
     else:
         return False
 
-    await message.channel.send(resposta)
+    await message.reply(resposta)
     registrar("OUT", "Link", message.author.name, resposta)
     return True
 
@@ -720,7 +720,7 @@ async def enviar_menu_discord(message: discord.Message, secao: str = "principal"
     owner = _is_discord_owner(message.author)
     if secao == "admin" and not owner:
         resposta = "🔒 Esse menu é só do dono."
-        await message.channel.send(resposta)
+        await message.reply(resposta)
         registrar("OUT", "Link", message.author.name, resposta)
         return
 
@@ -730,7 +730,7 @@ async def enviar_menu_discord(message: discord.Message, secao: str = "principal"
         kwargs["view"] = MenuView(owner)
         if os.path.exists(BANNER_FILE):
             kwargs["file"] = discord.File(BANNER_FILE, filename="hyrule-menu.jpg")
-    await message.channel.send(**kwargs)
+    await message.reply(**kwargs)
     registrar("OUT", "Link", message.author.name, f"[MENU:{secao}]")
 
 
@@ -1145,7 +1145,7 @@ async def on_message(message):
     _p_norm = _norm(message.content or "")
 
     if re.search(r'!link\s+acord', _p_norm):
-        await message.channel.send("acordando tudo... um segundo")
+        await message.reply("acordando tudo... um segundo")
         registrar("OUT", "Link", autor, "acordando tudo... um segundo")
         registrar("SYS", "Bot", "Claude", "[SHEIKAH_SLATE-PEDIDO] acorde sistema completo")
         return
@@ -1168,28 +1168,28 @@ async def on_message(message):
     if re.match(r'^!?\s*zpensa\b', _txt_norm):
         pedido_z = re.sub(r'^!?\s*zpensa\s*', '', _txt, flags=re.IGNORECASE).strip()
         if not pedido_z:
-            await message.channel.send("manda o texto depois do !zpensa")
+            await message.reply("manda o texto depois do !zpensa")
             registrar("OUT", "Link", autor, "manda o texto depois do !zpensa")
             return
         async with message.channel.typing():
             resposta_z = await responder_com_ia_local_tools(autor, pedido_z)
         resposta_z = sanitizar(resposta_z)
         if resposta_z:
-            await message.channel.send(resposta_z)
+            await message.reply(resposta_z)
             registrar("OUT", "Link", autor, resposta_z)
         return
 
     if re.match(r'^!?\s*z\b', _txt_norm):
         pedido_z = re.sub(r'^!?\s*z\s*', '', _txt, flags=re.IGNORECASE).strip()
         if not pedido_z:
-            await message.channel.send("manda o texto depois do !Z")
+            await message.reply("manda o texto depois do !Z")
             registrar("OUT", "Link", autor, "manda o texto depois do !Z")
             return
         async with message.channel.typing():
             resposta_z = await responder_com_ia_local(autor, pedido_z, think=False)
         resposta_z = sanitizar(resposta_z)
         if resposta_z:
-            await message.channel.send(resposta_z)
+            await message.reply(resposta_z)
             registrar("OUT", "Link", autor, resposta_z)
         return
 
@@ -1210,7 +1210,7 @@ async def on_message(message):
             )
         resposta_img = sanitizar(resposta_img)
         if resposta_img:
-            await message.channel.send(resposta_img)
+            await message.reply(resposta_img)
             registrar("OUT", "Link", autor, resposta_img)
         return
 
@@ -1219,7 +1219,7 @@ async def on_message(message):
         pedido_tf = re.sub(r'^triforce\s*', '', _txt, flags=re.IGNORECASE).strip()
         if not pedido_tf:
             pedido_tf = f"{autor} quer falar com a triforce"
-        await message.channel.send("✨ acionando triforce...")
+        await message.reply("✨ acionando triforce...")
         registrar("OUT", "Link", autor, "acionando triforce...")
         registrar("SYS", "Bot", "Claude", f"[TRIFORCE-PEDIDO] {pedido_tf}")
         return
@@ -1231,7 +1231,7 @@ async def on_message(message):
             pedido_mx = f"{autor} quer retomar contexto"
         elif not pedido_mx:
             pedido_mx = f"{autor} quer falar com a majora"
-        await message.channel.send("🌑 acionando majora...")
+        await message.reply("🌑 acionando majora...")
         registrar("OUT", "Link", autor, "acionando majora...")
         registrar("SYS", "Bot", "Codex", f"[MAJORA-PEDIDO] {pedido_mx}")
         return
@@ -1243,7 +1243,7 @@ async def on_message(message):
             pedido_ms = f"{autor} quer retomar contexto"
         elif not pedido_ms:
             pedido_ms = f"{autor} quer falar com a mastersword"
-        await message.channel.send("🗡️ acionando mastersword...")
+        await message.reply("🗡️ acionando mastersword...")
         registrar("OUT", "Link", autor, "acionando mastersword...")
         registrar("SYS", "Bot", "OpenCode", f"[MASTERSWORD-PEDIDO] {pedido_ms}")
         return
@@ -1275,14 +1275,14 @@ async def on_message(message):
             for a in arquivos_recentes:
                 registrar("SYS", "Bot", "Claude",
                           f"[SHEIKAH_SLATE-PEDIDO] salva no desktop URL:{a['url']} nome:{a['nome']} [retry:{ts}]")
-            await message.channel.send("tentando de novo...")
+            await message.reply("tentando de novo...")
             registrar("OUT", "Link", autor, "tentando de novo...")
             return
         ultimo_pedido = _get_ctx(autor).get("last_pedido")
         if ultimo_pedido:
             registrar("SYS", "Bot", "Claude",
                       f"[SHEIKAH_SLATE-PEDIDO] {ultimo_pedido} [retry:{ts}]")
-            await message.channel.send("tentando de novo...")
+            await message.reply("tentando de novo...")
             registrar("OUT", "Link", autor, "tentando de novo...")
             return
 
@@ -1299,7 +1299,7 @@ async def on_message(message):
         pedido = f"envia pro discord arquivo:{nome_arq}" if nome_arq else "envia pro discord o ultimo arquivo do Desktop"
         _set_ctx(autor, last_pedido=pedido, last_action="enviar_discord")
         registrar("SYS", "Bot", "Claude", f"[SHEIKAH_SLATE-PEDIDO] {pedido}")
-        await message.channel.send("Procurando o arquivo aqui...")
+        await message.reply("Procurando o arquivo aqui...")
         registrar("OUT", "Link", autor, "Procurando o arquivo aqui...")
         return
 
@@ -1339,7 +1339,7 @@ async def on_message(message):
 
     resposta_limpa = sanitizar(resposta)
     if resposta_limpa:
-        await message.channel.send(resposta_limpa)
+        await message.reply(resposta_limpa)
         registrar("OUT", "Link", autor, resposta_limpa)
 
 

@@ -44,12 +44,12 @@ class MessageContext:
     router: Any = None              # pra skill /ajuda listar comandos
 
     async def reply(self, text: str):
-        """Envia resposta de texto pro chat."""
+        """Envia resposta de texto pro chat, citando a mensagem original."""
         if self.client is None:
             print(f"[reply mock] {text}")
             return
         try:
-            await self.client.send_message(self.chat_jid, text)
+            await self.client.send_message(self.chat_jid, text, quoted_id=self.message_id or "")
         except Exception as e:
             print(f"[reply err] {e}")
 
@@ -86,13 +86,13 @@ class MessageContext:
             pass
 
     async def send_image(self, file_path: str, caption: str = ""):
-        """Envia imagem com legenda opcional."""
+        """Envia imagem com legenda opcional, citando a mensagem original."""
         if self.client is None:
             print(f"[send_image mock] {file_path}")
             return
         try:
             await asyncio.wait_for(
-                self.client.send_image(self.chat_jid, file_path, caption=caption or None),
+                self.client.send_image(self.chat_jid, file_path, caption=caption or None, quoted_id=self.message_id or ""),
                 timeout=12,
             )
         except asyncio.TimeoutError:
@@ -105,39 +105,38 @@ class MessageContext:
                 await self.reply(caption)
 
     async def send_buttons(self, text: str, buttons: list[tuple[str, str]], footer: str = "") -> bool:
-        """Botões nativos — não suportados via bridge Baileys, retorna False."""
         return False
 
     async def send_list(self, title: str, description: str, rows: list[tuple[str, str, str]], button_text: str = "Abrir", footer: str = "") -> bool:
-        """Lista nativa — não suportada via bridge Baileys, retorna False."""
         return False
 
     async def send_audio_ptt(self, file_path: str):
-        """Envia áudio como nota de voz (PTT)."""
+        """Envia áudio como nota de voz (PTT), citando a mensagem original."""
         if self.client is None:
             return
         try:
-            await self.client.send_audio(self.chat_jid, file_path, ptt=True)
+            await self.client.send_audio(self.chat_jid, file_path, ptt=True, quoted_id=self.message_id or "")
         except Exception as e:
             print(f"[send_audio_ptt err] {e}")
 
     async def reply_media(self, file_path: str, caption: str = "",
                            as_sticker: bool = False):
-        """Envia mídia detectando o tipo pela extensão do arquivo."""
+        """Envia mídia detectando o tipo, citando a mensagem original."""
         if self.client is None:
             print(f"[reply_media mock] {file_path} (sticker={as_sticker})")
             return
+        qid = self.message_id or ""
         try:
             ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
             if as_sticker:
                 if hasattr(self.client, "send_sticker"):
-                    await self.client.send_sticker(self.chat_jid, file_path)
+                    await self.client.send_sticker(self.chat_jid, file_path, quoted_id=qid)
                 else:
-                    await self.client.send_message(self.chat_jid, file_path)
+                    await self.client.send_message(self.chat_jid, file_path, quoted_id=qid)
                 if caption:
                     await self.client.send_message(self.chat_jid, caption)
             elif ext in ("mp3", "ogg", "m4a", "wav", "aac", "opus"):
-                await self.client.send_audio(self.chat_jid, file_path, ptt=True)
+                await self.client.send_audio(self.chat_jid, file_path, ptt=False, quoted_id=qid)
                 if caption:
                     await self.client.send_message(self.chat_jid, caption)
             else:
