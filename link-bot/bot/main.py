@@ -82,8 +82,17 @@ def _norm_text(text: str) -> str:
     )
 
 
-def _fallback_reaction() -> str:
-    return "⚔️"
+_CATEGORY_EMOJI = {
+    "midia":   "🎵",
+    "util":    "🔍",
+    "info":    "📖",
+    "admin":   "🛠️",
+    "lembrete": "⏰",
+    "ia":      "🤖",
+}
+
+def _fallback_reaction(category: str = "") -> str:
+    return _CATEGORY_EMOJI.get(category, "")
 
 
 def _cleanup_old_media() -> int:
@@ -675,12 +684,13 @@ class LinkBot:
                 media_type=media_type or "",
                 is_admin=is_admin,
             )
+        category = getattr(skill, "category", "") if skill else ""
         try:
             emoji = await asyncio.wait_for(loop.run_in_executor(None, _choose), timeout=8)
-            return emoji or _fallback_reaction()
+            return emoji or _fallback_reaction(category)
         except Exception as e:
             log.debug(f"reacao via LLM fallback falhou: {e}")
-            return _fallback_reaction()
+            return _fallback_reaction(category)
 
     # ── Reminder reaction ack ─────────────────────────────────────────────────
 

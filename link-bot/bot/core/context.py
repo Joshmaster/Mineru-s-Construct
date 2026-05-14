@@ -65,7 +65,7 @@ class MessageContext:
 
     async def react(self, emoji: str):
         """Reage à mensagem com emoji."""
-        if self.client is None or not self.message_id:
+        if self.client is None or not self.message_id or not emoji:
             return
         try:
             result = await self.client.build_reaction(
