@@ -82,17 +82,8 @@ def _norm_text(text: str) -> str:
     )
 
 
-_CATEGORY_EMOJI = {
-    "midia":   "🎵",
-    "util":    "🔍",
-    "info":    "📖",
-    "admin":   "🛠️",
-    "lembrete": "⏰",
-    "ia":      "🤖",
-}
-
 def _fallback_reaction(category: str = "") -> str:
-    return _CATEGORY_EMOJI.get(category, "")
+    return ""
 
 
 def _cleanup_old_media() -> int:
