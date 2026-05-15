@@ -26,18 +26,28 @@ STALE_LOCK_SECS = 15 * 60
 TIMEOUT_SECS = 240
 
 DEFAULT_MODELS = [
-    "openrouter/openai/gpt-5.1",
-    "openrouter/google/gemini-2.5-pro",
-    "openrouter/qwen/qwen3-coder",
-    "openrouter/openai/gpt-oss-120b:free",
-    "openrouter/openai/gpt-oss-20b:free",
+    "openrouter/openai/gpt-5.1",                   # 1. melhor OpenRouter (Claude bloqueado por credito)
+    "mistral/mistral-large-latest",                 # 2. melhor Mistral (direto)
+    "cerebras/qwen-3-235b-a22b-instruct-2507",     # 3. melhor Cerebras (direto)
+    "openrouter/deepseek/deepseek-r1-0528",        # 4. DeepSeek R1 raciocinio
+    "openrouter/openai/gpt-oss-120b:free",         # 5. fallback gratuito
 ]
-OPENCODE_MODELS = {
-    "openai/gpt-5.1": {"name": "GPT-5.1 (qualidade padrao)"},
-    "google/gemini-2.5-pro": {"name": "Gemini 2.5 Pro (fallback qualidade)"},
-    "qwen/qwen3-coder": {"name": "Qwen3 Coder (fallback codigo)"},
-    "openai/gpt-oss-120b:free": {"name": "GPT OSS 120B (fallback gratuito)"},
-    "openai/gpt-oss-20b:free": {"name": "GPT OSS 20B (fallback gratuito rapido)"},
+OPENROUTER_MODELS = {
+    "anthropic/claude-opus-4.7":   {"name": "Claude Opus 4.7"},
+    "anthropic/claude-sonnet-4.6": {"name": "Claude Sonnet 4.6"},
+    "openai/gpt-5.1":              {"name": "GPT-5.1"},
+    "google/gemini-2.5-pro":       {"name": "Gemini 2.5 Pro"},
+    "deepseek/deepseek-r1-0528":   {"name": "DeepSeek R1"},
+    "openai/gpt-oss-120b:free":    {"name": "GPT OSS 120B (free)"},
+    "openai/gpt-oss-20b:free":     {"name": "GPT OSS 20B (free)"},
+}
+MISTRAL_MODELS = {
+    "mistral-large-latest":    {"name": "Mistral Large"},
+    "devstral-medium-latest":  {"name": "Devstral Medium (codigo)"},
+    "magistral-medium-latest": {"name": "Magistral Medium (raciocinio)"},
+}
+CEREBRAS_MODELS = {
+    "qwen-3-235b-a22b-instruct-2507": {"name": "Qwen3 235B (Cerebras turbo)"},
 }
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
@@ -118,11 +128,15 @@ def _enviar(usuario: str, msg: str, canal: str = "discord"):
 def _env_opencode() -> dict:
     env = os.environ.copy()
     try:
-        from hyrule_env import OPENROUTER_KEYS
+        from hyrule_env import OPENROUTER_KEYS, MISTRAL_KEYS, CEREBRAS_KEYS
     except ImportError:
-        OPENROUTER_KEYS = []
+        OPENROUTER_KEYS = MISTRAL_KEYS = CEREBRAS_KEYS = []
     if OPENROUTER_KEYS:
         env.setdefault("OPENROUTER_API_KEY", OPENROUTER_KEYS[0])
+    if MISTRAL_KEYS:
+        env.setdefault("MISTRAL_API_KEY", MISTRAL_KEYS[0])
+    if CEREBRAS_KEYS:
+        env.setdefault("CEREBRAS_API_KEY", CEREBRAS_KEYS[0])
     env.setdefault("OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX", os.environ.get("MASTERSWORD_OUTPUT_TOKEN_MAX", "2048"))
     return env
 
@@ -150,11 +164,21 @@ def _ensure_config():
         "openrouter": {
             "api": "https://openrouter.ai/api/v1",
             "env": ["OPENROUTER_API_KEY"],
-            "models": OPENCODE_MODELS,
-        }
+            "models": OPENROUTER_MODELS,
+        },
+        "mistral": {
+            "api": "https://api.mistral.ai/v1",
+            "env": ["MISTRAL_API_KEY"],
+            "models": MISTRAL_MODELS,
+        },
+        "cerebras": {
+            "api": "https://api.cerebras.ai/v1",
+            "env": ["CEREBRAS_API_KEY"],
+            "models": CEREBRAS_MODELS,
+        },
     }
     config["model"] = DEFAULT_MODELS[0]
-    config["small_model"] = DEFAULT_MODELS[3]
+    config["small_model"] = "cerebras/qwen-3-235b-a22b-instruct-2507"
     config["instructions"] = instructions
     CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
