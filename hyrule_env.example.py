@@ -15,11 +15,18 @@ OPENROUTER_KEYS = [
     "OPENROUTER_KEY_3",   # opcional — 3a chave para rotacao
 ]
 
-# Groq — crie em https://console.groq.com/keys (plano free disponivel)
-GROQ_KEYS = [
-    "GROQ_KEY_1",
-    "GROQ_KEY_2",   # opcional
-    "GROQ_KEY_3",   # opcional
+# Cerebras — provider FAST do Link
+CEREBRAS_KEYS = [
+    "CEREBRAS_KEY_1",
+    "CEREBRAS_KEY_2",   # opcional
+    "CEREBRAS_KEY_3",   # opcional
+]
+
+# Mistral — provider QUALITY/chat antes do OpenRouter
+MISTRAL_KEYS = [
+    "MISTRAL_KEY_1",
+    "MISTRAL_KEY_2",   # opcional
+    "MISTRAL_KEY_3",   # opcional
 ]
 
 # WhatsApp — numero do dono do bot (com DDI, sem + ou espacos)

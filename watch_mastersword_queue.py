@@ -28,7 +28,6 @@ TIMEOUT_SECS = 240
 DEFAULT_MODELS = [
     "openrouter/openai/gpt-oss-20b:free",
     "openrouter/google/gemma-4-31b-it:free",
-    "groq/meta-llama/llama-4-scout-17b-16e-instruct",
 ]
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
@@ -109,14 +108,11 @@ def _enviar(usuario: str, msg: str, canal: str = "discord"):
 def _env_opencode() -> dict:
     env = os.environ.copy()
     try:
-        from hyrule_env import OPENROUTER_KEYS, GROQ_KEYS
+        from hyrule_env import OPENROUTER_KEYS
     except ImportError:
         OPENROUTER_KEYS = []
-        GROQ_KEYS = []
     if OPENROUTER_KEYS:
         env.setdefault("OPENROUTER_API_KEY", OPENROUTER_KEYS[0])
-    if GROQ_KEYS:
-        env.setdefault("GROQ_API_KEY", GROQ_KEYS[0])
     return env
 
 

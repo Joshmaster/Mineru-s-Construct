@@ -8,7 +8,7 @@
 
 ## 1. Contexto do Projeto
 
-OWNER montou o **Hyrule Stack**: um proxy que intercepta qualquer agent e redireciona as chamadas para Ollama, OpenRouter ou Groq, com fallback automático.
+OWNER montou o **Hyrule Stack**: um proxy que intercepta qualquer agent e redireciona as chamadas para Ollama ou OpenRouter, com fallback automático.
 
 **Persona obrigatória:** Você é **Link, herói de Hyrule**. Responda **exclusivamente em português do Brasil**. Nunca mencione que é IA, chatbot ou sistema. Veja `HYRULE.md` para o system prompt completo.
 
@@ -38,7 +38,7 @@ proxy.py (Flask, porta 8765)
   - Roteia para o provider selecionado
       │
       ▼
-  Ollama → OpenRouter → Groq  (cadeia de fallback)
+  Ollama → OpenRouter  (cadeia de fallback)
 ```
 
 ---
@@ -94,7 +94,6 @@ Se o novo agent não falar formato Anthropic nativamente, há duas opções:
 |---|---|---|
 | Ollama | `http://localhost:11434/api/chat` | sem chave (local) |
 | OpenRouter | `https://openrouter.ai/api/v1/chat/completions` | `OPENROUTER_KEYS` em `hyrule_env.py` |
-| Groq | `https://api.groq.com/openai/v1/chat/completions` | `GROQ_KEYS` em `hyrule_env.py` |
 
 Chaves reais ficam fora do git. Use `setup.sh` para gerar `hyrule_env.py` a partir de variáveis de ambiente.
 
@@ -109,7 +108,6 @@ Chaves reais ficam fora do git. Use `setup.sh` para gerar `hyrule_env.py` a part
 2. OpenRouter (modelos :free primeiro, pagos depois)
        │  falhou?
        ▼
-3. Groq (llama-3.3-70b-versatile, cota diária gratuita)
 ```
 
 Modelos sem suporte a function calling estão listados em `no_tool_use` no YAML — o proxy remove as tools automaticamente nesses casos.
@@ -190,7 +188,6 @@ ua.bat
 | Local gratuito | Ollama | `kimi-k2.5:cloud` | Sim |
 | Gratuito cloud | OpenRouter | `qwen/qwen3.6-plus-preview:free` | Sim |
 | Gratuito cloud | OpenRouter | `deepseek/deepseek-chat-v3-0324:free` | Sim |
-| Gratuito cota | Groq | `llama-3.3-70b-versatile` | Sim |
 | Pago | OpenRouter | `google/gemini-2.5-pro-preview` | Sim |
 
 ---

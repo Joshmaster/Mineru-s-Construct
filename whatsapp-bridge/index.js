@@ -367,6 +367,37 @@ app.post("/send/reaction", requireConnected, async (req, res) => {
     }
 });
 
+app.post("/send/edit", requireConnected, async (req, res) => {
+    const { jid, msgId, text } = req.body;
+    if (!jid || !msgId || text == null)
+        return res.status(400).json({ ok: false, error: "jid, msgId e text obrigatórios" });
+    try {
+        await sock.sendMessage(jid, {
+            edit: { remoteJid: jid, fromMe: true, id: msgId },
+            text: String(text),
+        });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error(`send/edit erro: ${e.message}`);
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
+app.post("/send/delete", requireConnected, async (req, res) => {
+    const { jid, msgId } = req.body;
+    if (!jid || !msgId)
+        return res.status(400).json({ ok: false, error: "jid e msgId obrigatórios" });
+    try {
+        await sock.sendMessage(jid, {
+            delete: { remoteJid: jid, fromMe: true, id: msgId },
+        });
+        res.json({ ok: true });
+    } catch (e) {
+        console.error(`send/delete erro: ${e.message}`);
+        res.status(500).json({ ok: false, error: e.message });
+    }
+});
+
 app.post("/send/presence", requireConnected, async (req, res) => {
     const { jid, presence = "composing" } = req.body;
     if (!jid) return res.status(400).json({ ok: false, error: "jid obrigatório" });

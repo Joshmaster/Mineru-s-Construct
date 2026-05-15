@@ -56,15 +56,17 @@ class MessageContext:
         """Envia resposta de texto pro chat, citando a mensagem original."""
         if self.client is None:
             print(f"[reply mock] {text}")
-            return
+            return None
         try:
-            await self.client.send_message(
+            resp = await self.client.send_message(
                 self.chat_jid, text,
                 quoted_id=self.message_id or "",
                 quoted_sender=self._sender_str() if self.is_group else "",
             )
+            return resp
         except Exception as e:
             print(f"[reply err] {e}")
+            return None
 
     async def react(self, emoji: str):
         """Reage à mensagem com emoji."""

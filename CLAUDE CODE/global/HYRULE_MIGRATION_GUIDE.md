@@ -49,7 +49,7 @@
 │  Roteamento:                                                     │
 │    ┌──────────┐   falha   ┌─────────────────────────────┐      │
 │    │  Ollama  │ ────────► │  Menu Interativo de Fallback │      │
-│    │ :11434   │           │  OpenRouter  /  Groq         │      │
+│    │ :11434   │           │  OpenRouter         │      │
 │    └──────────┘           └─────────────────────────────┘      │
 └──────────────────────────────────────────────────────────────────┘
 ```
@@ -102,12 +102,7 @@ fallback:
       - modelo-gratuito:free
       - modelo-pago
     no_tool_use:
-      - modelos-sem-suporte-a-function-calling
-
-  groq:
-    endpoint: https://api.groq.com/openai/v1/chat/completions
-    api_key: GROQ_KEY
-    models:
+      - modelos-sem-suporte-a-function-calling    models:
       - llama-3.3-70b-versatile
     no_tool_use:
       - modelos-sem-suporte
@@ -182,7 +177,7 @@ Agent → POST /v1/messages (Anthropic format)
 ```python
 _config            # dict com toda a config do HYRULE.md
 _system_prompt     # string com a persona/instruções
-_session_provider  # "ollama" | "openrouter" | "groq"
+_session_provider  # "ollama" | "openrouter"
 _session_model     # nome do modelo ativo
 _session_cfg       # config do provider ativo
 _session_no_tool_use  # lista de modelos sem suporte a tools
@@ -229,9 +224,7 @@ CLI **standalone** — funciona **sem** proxy. Útil como alternativa standalone
        ▼
 2. Menu interativo no terminal
        │ usuário escolhe:
-       ├── OpenRouter → modelos gratuitos (:free) ou pagos
-       └── Groq       → modelos com cota diária gratuita
-```
+       ├── OpenRouter → modelos gratuitos (:free) ou pagos```
 
 **Detecção de suporte a tools:** modelos listados em `no_tool_use` no YAML recebem as ferramentas removidas automaticamente da requisição, com aviso visual (`⚠`) no terminal.
 
@@ -267,8 +260,8 @@ pip install flask requests pyyaml
 | Componente | O que fazer |
 |---|---|
 | **System prompt** | Copiar o conteúdo do `HYRULE.md` (antes da seção de fallback) |
-| **Chaves de API** | OpenRouter (`OPENROUTER_KEY`) e Groq (`GROQ_KEY`) do bloco YAML |
-| **Lógica de fallback** | Reimplementar a cadeia Ollama → OpenRouter → Groq |
+| **Chaves de API** | OpenRouter (`OPENROUTER_KEY`) do bloco YAML |
+| **Lógica de fallback** | Reimplementar a cadeia Ollama → OpenRouter |
 
 ### 9.2 O que NÃO migrar (específico do proxy Flask)
 
@@ -282,8 +275,6 @@ pip install flask requests pyyaml
 # 1. Leia o system prompt de HYRULE.md (até "## Configuração de Fallback")
 # 2. Configure o cliente HTTP com as chaves:
 OPENROUTER_KEY = "OPENROUTER_KEY"
-GROQ_KEY       = "GROQ_KEY"
-
 # 3. Implemente a cadeia de fallback:
 def chat(messages, tools=None):
     # Tenta Ollama
@@ -293,11 +284,6 @@ def chat(messages, tools=None):
     # Tenta OpenRouter
     resp = openrouter_call(messages, "qwen/qwen3.6-plus-preview:free", tools)
     if resp: return resp
-
-    # Tenta Groq
-    resp = groq_call(messages, "llama-3.3-70b-versatile", tools)
-    if resp: return resp
-
     raise RuntimeError("Todos os providers falharam")
 ```
 
@@ -307,9 +293,7 @@ def chat(messages, tools=None):
 |---|---|---|---|
 | Local gratuito | Ollama | `kimi-k2.5:cloud` | Sim (Ollama >= 0.3) |
 | Gratuito cloud | OpenRouter | `qwen/qwen3.6-plus-preview:free` | Sim |
-| Gratuito cloud | OpenRouter | `deepseek/deepseek-chat-v3-0324:free` | Sim |
-| Gratuito cota | Groq | `llama-3.3-70b-versatile` | Sim |
-| Pago | OpenRouter | `google/gemini-2.5-pro-preview` | Sim |
+| Gratuito cloud | OpenRouter | `deepseek/deepseek-chat-v3-0324:free` | Sim || Pago | OpenRouter | `google/gemini-2.5-pro-preview` | Sim |
 | Pago | OpenRouter | `google/gemini-2.5-pro-preview` | Sim |
 
 ---
@@ -373,8 +357,6 @@ link        # abre menu de provider → sobe proxy → abre agent
 | Serviço | Chave (prefixo) | Onde revogar |
 |---|---|---|
 | OpenRouter | `OPENROUTER_KEY` | openrouter.ai -> Keys |
-| Groq | `GROQ_KEY` | console.groq.com -> API Keys |
-
 ---
 
 *Documento gerado automaticamente com base na leitura de todos os arquivos do stack Hyrule em 2026-04-08.*

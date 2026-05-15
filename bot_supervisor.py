@@ -73,30 +73,10 @@ OLLAMA_CLOUD  = None                # reservado — definir modelo cloud quando 
 OLLAMA_ALL_TOOLS = True             # qwen3:8b recebe o conjunto completo de tools
 
 try:
-    from hyrule_env import GROQ_KEYS, OPENROUTER_KEYS as _OR_KEYS_ENV
+    from hyrule_env import OPENROUTER_KEYS as _OR_KEYS_ENV
     _OPENROUTER_KEYS_ENV = _OR_KEYS_ENV
 except ImportError:
-    GROQ_KEYS = []
     _OPENROUTER_KEYS_ENV = []
-
-GROQ_URL  = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_HEADERS = {
-    "Content-Type": "application/json",
-    "User-Agent":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept":       "application/json",
-    "Origin":       "https://console.groq.com",
-    "Referer":      "https://console.groq.com/",
-}
-# Modelos Groq com tool calling (0.3s latência)
-GROQ_MODELOS = [
-    "llama-3.3-70b-versatile",                    # 1o — 70B, melhor geral
-    "meta-llama/llama-4-scout-17b-16e-instruct",  # 2o — llama4, arquitetura nova
-    "qwen/qwen3-32b",                              # 3o — 32B raciocinio
-    "groq/compound",                               # 4o — compound groq
-    "groq/compound-mini",                          # 5o — compound menor
-    "llama-3.1-8b-instant",                        # 6o — 8B rapido
-    "allam-2-7b",                                  # 7o — 7B ultimo recurso
-]
 
 OPENROUTER_KEYS = _OPENROUTER_KEYS_ENV
 # Modelos validados com tool calling (ordenados por confiabilidade/velocidade)
@@ -467,42 +447,6 @@ def chamar_api_local(rota: str, payload: dict = None, metodo: str = "POST") -> d
         return None
 
 
-def chamar_groq_tools(pedido: str, system: str, tools: list) -> tuple[str | None, list]:
-    """Chama Groq com tool calling. Retorna (texto, tool_calls)."""
-    for modelo in GROQ_MODELOS:
-        for key in GROQ_KEYS:
-            payload = json.dumps({
-                "model":       modelo,
-                "messages":    [
-                    {"role": "system", "content": system},
-                    {"role": "user",   "content": pedido},
-                ],
-                "tools":       tools,
-                "tool_choice": "auto",
-                "max_tokens":  300,
-                "temperature": 0.3,
-            }).encode("utf-8")
-            req = urllib.request.Request(
-                GROQ_URL, data=payload,
-                headers={**GROQ_HEADERS, "Authorization": f"Bearer {key}"},
-                method="POST",
-            )
-            try:
-                with urllib.request.urlopen(req, timeout=15) as r:
-                    data       = json.loads(r.read())
-                msg        = data["choices"][0]["message"]
-                tool_calls = msg.get("tool_calls", [])
-                content    = msg.get("content", "") or ""
-                log(f"GROQ [{modelo}] respondeu")
-                return content.strip(), tool_calls
-            except urllib.error.HTTPError as e:
-                if e.code in (401, 403, 429):
-                    continue
-            except Exception:
-                continue
-    return None, []
-
-
 def ollama_disponivel() -> bool:
     try:
         with urllib.request.urlopen("http://localhost:11434/api/tags", timeout=3) as r:
@@ -851,7 +795,7 @@ def _delirius_prompt(pergunta: str) -> str:
 def chamar_delirius_llm(pergunta: str, timeout: int = 15) -> str | None:
     """Delirius Store free LLMs: chatgpt → gemini. Sem chave.
     Embute identidade do bot no próprio ?q= para contextualizar as respostas.
-    Primeiro fallback remoto — acionado antes de OpenRouter/Groq.
+    Fallback remoto legado — acionado antes de OpenRouter.
     """
     import urllib.parse as _up
     prompt = _delirius_prompt(pergunta)
@@ -2419,30 +2363,8 @@ def chamar_agente_tools(pedido: str, usuario: str) -> str | None:
                 continue
             break  # saiu do loop de chaves sem erro — tenta próximo modelo se necessário
 
-    # Fallback Groq — entra quando OpenRouter todo falha (0.3s latência)
-    system_groq = (
-        "Voce e o agente Hyrule Supervisor, rodando no PC do OWNER.\n"
-        "Use as tools disponiveis para resolver o pedido.\n"
-        "Responda em portugues, de forma breve e direta."
-    )
-    content_groq, tool_calls_groq = chamar_groq_tools(pedido, system_groq, TOOLS_DEFINICAO)
-    if tool_calls_groq or content_groq:
-        if tool_calls_groq:
-            for tc in tool_calls_groq:
-                fn_name = tc["function"]["name"]
-                fn_args = tc["function"].get("arguments", {})
-                if isinstance(fn_args, str):
-                    fn_args = json.loads(fn_args)
-                resultado_tool = executar_tool(fn_name, fn_args)
-                log(f"GROQ TOOL {fn_name} -> {resultado_tool[:60]}")
-                # Ação terminal concluída → para imediatamente (evita reenvios)
-                if fn_name in {"enviar_arquivo_local", "enviar_mensagem"} and "Erro" not in resultado_tool:
-                    return resultado_tool
-            return resultado_tool
-        return content_groq
-
     # Fallback Ollama → kimi-k2.5:cloud — API nuvem Moonshot roteada pelo Ollama
-    # (entra quando OpenRouter e Groq falham)
+    # (entra quando OpenRouter falha)
     if ollama_disponivel():
         log("OpenRouter esgotado — fallback Ollama/qwen (tools)")
         system = (
@@ -2508,18 +2430,7 @@ def responder_pedido(pedido: str, usuario: str, sem_triforce: bool = False, cana
         enviar(usuario, resultado_agente, canal)
         return
 
-    # 4. Groq com tools
-    try:
-        tools_g = _selecionar_tools(pedido)
-        system_g = "Você é um assistente pessoal. Responda de forma direta em português."
-        resp_g, _ = chamar_groq_tools(pedido, system_g, tools_g)
-        if resp_g:
-            enviar(usuario, resp_g, canal)
-            return
-    except Exception:
-        pass
-
-    # 5. Ollama local (qwen ReAct) — só quando tudo remoto falhou
+    # 4. Ollama local (qwen ReAct) — só quando tudo remoto falhou
     if ollama_disponivel():
         resultado_react = executar_qwen_react(pedido, usuario)
         if resultado_react:

@@ -118,6 +118,11 @@ def _looks_like_contextual_music_request(text: str) -> bool:
         "desse artista", "dessa banda", "parecida com essa", "nesse estilo",
         "mais outra", "outra dela", "outra dele", "outra deles",
         "do mesmo artista", "do mesmo estilo", "mesmo genero", "mesmo genero",
+        # frases casuais curtas
+        "outra ai", "outro ai", "baixa outra", "manda outra",
+        "manda mais uma", "mais uma ai", "mais um ai", "outra igual",
+        "uma parecida", "outra do mesmo", "do mesmo", "da mesma",
+        "manda mais", "coloca outra", "bota outra",
     ))
 
 
@@ -228,6 +233,7 @@ class LinkBot:
         self.user_jids: dict = {}
         self.last_media: dict = {}
         self.sent_music_context: dict[str, dict] = {}
+        self.last_music_by_chat: dict[str, dict] = {}  # chat_jid_str → {context, ts}
 
         # Bot identity
         self.my_jid = None
@@ -503,28 +509,35 @@ class LinkBot:
             return None
         return match
 
-    def _remember_sent_music(self, message_id: str, context: str):
+    def _remember_sent_music(self, message_id: str, context: str, chat_jid_str: str = ""):
         context = (context or "").strip()
         if not message_id or not context:
             return
-        self.sent_music_context[str(message_id)] = {"context": context[:500], "ts": time.time()}
+        entry = {"context": context[:500], "ts": time.time()}
+        self.sent_music_context[str(message_id)] = entry
+        if chat_jid_str:
+            self.last_music_by_chat[str(chat_jid_str)] = entry
         # Limpeza simples para não acumular IDs antigos.
         cutoff = time.time() - 6 * 60 * 60
         for mid, item in list(self.sent_music_context.items()):
             if float(item.get("ts") or 0) < cutoff:
                 self.sent_music_context.pop(mid, None)
 
-    def _quoted_music_context(self, quoted_id: str, quoted_text: str = "") -> str:
+    def _quoted_music_context(self, quoted_id: str, quoted_text: str = "", chat_jid_str: str = "") -> str:
         if quoted_id:
             item = self.sent_music_context.get(str(quoted_id)) or {}
             if item.get("context"):
                 return str(item["context"])
         text = (quoted_text or "").strip()
-        if not text:
-            return ""
-        norm = _norm_text(text)
-        if "spotify:" in norm or "youtube:" in norm or "audio do youtube" in norm or text.startswith("🎵"):
-            return text[:500]
+        if text:
+            norm = _norm_text(text)
+            if "spotify:" in norm or "youtube:" in norm or "audio do youtube" in norm or text.startswith("🎵"):
+                return text[:500]
+        # Fallback: última música enviada neste chat (sem precisar de reply)
+        if chat_jid_str:
+            item = self.last_music_by_chat.get(str(chat_jid_str)) or {}
+            if item.get("context") and time.time() - float(item.get("ts") or 0) < 6 * 3600:
+                return str(item["context"])
         return ""
 
     # ── JID candidates ────────────────────────────────────────────────────────
@@ -892,7 +905,7 @@ class LinkBot:
                     pass
             mentioned = self._is_bot_mentioned(msg)
             my_user = getattr(self.my_jid, "User", "") if self.my_jid else ""
-            quoted_music_context = self._quoted_music_context(quoted_id, quoted_text)
+            quoted_music_context = self._quoted_music_context(quoted_id, quoted_text, chat_jid_str)
             owner_natural = (
                 self._is_admin(sender_number, chat_number, sender_jid_str, chat_jid_str)
                 and (
@@ -988,7 +1001,7 @@ class LinkBot:
 
         # quoted_music_context: já calculado no bloco de grupo acima; recalcula aqui apenas em DM
         if not is_group:
-            quoted_music_context = self._quoted_music_context(quoted_id, quoted_text)
+            quoted_music_context = self._quoted_music_context(quoted_id, quoted_text, chat_jid_str)
 
         # ── Clarificação pendente ────────────────────────────────────────────────
         _now_ts = time.time()
@@ -1143,7 +1156,7 @@ class LinkBot:
             storage=self.storage,
             config=self.config,
             router=self.router,
-            sent_music_callback=self._remember_sent_music,
+            sent_music_callback=lambda mid, ctx, _cj=chat_jid_str: self._remember_sent_music(mid, ctx, _cj),
         )
 
         nome_usuario = access_ctl.display_name(sender_number, chat_number, sender_jid_str, chat_jid_str, pushname=pushname)

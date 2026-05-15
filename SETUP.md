@@ -114,9 +114,12 @@ export DISCORD_TOKEN="..."
 export OPENROUTER_KEY_1="..."
 export OPENROUTER_KEY_2="..."
 export OPENROUTER_KEY_3="..."
-export GROQ_KEY_1="..."
-export GROQ_KEY_2="..."
-export GROQ_KEY_3="..."
+export CEREBRAS_KEY_1="..."
+export CEREBRAS_KEY_2="..."
+export CEREBRAS_KEY_3="..."
+export MISTRAL_KEY_1="..."
+export MISTRAL_KEY_2="..."
+export MISTRAL_KEY_3="..."
 export WA_OWNER="5537..."
 export WA_ALLOW_FROM="5537...,5537..."
 
@@ -136,9 +139,14 @@ bash setup.sh
 2. Va em **Keys** → **Create Key** → copie
 3. Basta uma chave; OPENROUTER_KEY_2 e _3 sao opcionais para rotacao
 
-**GROQ_KEY** (gratuito, alta velocidade)
-1. Crie conta em [console.groq.com](https://console.groq.com)
-2. Va em **API Keys** → **Create API Key** → copie
+**CEREBRAS_KEY** (provider fast)
+1. Crie conta no painel da Cerebras
+2. Crie uma API key e copie
+3. Mesma logica: uma chave basta, as extras sao para rotacao
+
+**MISTRAL_KEY** (provider quality/chat)
+1. Crie conta no painel da Mistral
+2. Crie uma API key e copie
 3. Mesma logica: uma chave basta, as extras sao para rotacao
 
 **WA_OWNER e WA_ALLOW_FROM** (numeros WhatsApp)
@@ -312,7 +320,7 @@ MASTERSWORD:
 - Entrada: `mastersword_queue.json`
 - Executor: `watch_mastersword_queue.py`
 - Comando: `opencode run`
-- Modelos: OpenRouter free -> Ollama local; Groq fica configurado para uso user2al
+- Modelos: OpenRouter free -> Ollama local
 - Persona/config: `OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md` + `OPENCODE/roaming/LINK_PERSONA.md`
 - Lock: `.mastersword_processing.lock`
 - Lock stale: 15 min
@@ -337,7 +345,7 @@ opencode --version
 opencode debug config
 ```
 
-`check_llms.py` le `OPENROUTER_KEYS` e `GROQ_KEYS` de `hyrule_env.py`.
+`check_llms.py` le `CEREBRAS_KEYS`, `MISTRAL_KEYS` e `OPENROUTER_KEYS` de `hyrule_env.py`.
 
 ## 14. Logs
 
@@ -374,7 +382,7 @@ tail -f ~/Agents/CLAUDE\ CODE/proxy_runtime.log
 | TRIFORCE 401 | Abrir `claude` interativo e renovar login OAuth |
 | WhatsApp pede QR | Restaurar `session.sqlite` ou parear novamente |
 | Discord offline | Conferir token e intents no Developer Portal |
-| OpenRouter/Groq 429 | Rate limit; supervisor rotaciona chaves automaticamente |
+| Provider cloud 429 | Rate limit; o sistema rotaciona chaves automaticamente |
 | MAJORA processando duas vezes | Ver `majora.log` e remover lock stale se necessario |
 | MASTERSWORD falha | `opencode --version`, `opencode debug config`, ver `mastersword.log` |
 

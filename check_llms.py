@@ -14,10 +14,15 @@ import urllib.error
 
 # ── Chaves ────────────────────────────────────────────────────────────────────
 try:
-    from hyrule_env import OPENROUTER_KEYS, GROQ_KEYS
+    from hyrule_env import (
+        OPENROUTER_KEYS,
+        CEREBRAS_KEYS,
+        MISTRAL_KEYS,
+    )
 except ImportError:
     OPENROUTER_KEYS = []
-    GROQ_KEYS = []
+    CEREBRAS_KEYS = []
+    MISTRAL_KEYS = []
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -90,12 +95,12 @@ def check_opencode():
 def check_openrouter():
     """Testa cada chave — basta uma funcionar. 429 = chave válida, provider rate-limited."""
     payload = json.dumps({
-        "model": "google/gemma-4-31b-it:free",
+        "model": "openai/gpt-oss-20b:free",
         "messages": [{"role": "user", "content": "ping"}],
         "max_tokens": 5,
     }).encode("utf-8")
 
-    for key in OPENROUTER_KEYS:
+    for idx, key in enumerate(OPENROUTER_KEYS, start=1):
         status, err = _post(
             "https://openrouter.ai/api/v1/chat/completions",
             payload,
@@ -107,43 +112,67 @@ def check_openrouter():
             },
         )
         if status == 200:
-            return True, f"OK — {key[:18]}..."
+            return True, f"OK — chave {idx}"
         if status == 429:
-            return True, f"chave valida, rate-limit — {key[:18]}..."
+            return True, f"chave {idx} valida, rate-limit"
         if status == 401:
             continue  # chave inválida, tenta próxima
     return False, "todas as chaves invalidas ou sem acesso"
 
 
-def check_groq():
-    """Testa cada chave Groq — 403 = chave expirada/bloqueada."""
+def check_cerebras():
+    """Cerebras é o provider primário rápido do WhatsApp/link-bot."""
     payload = json.dumps({
-        "model": "llama-3.1-8b-instant",
+        "model": "llama3.1-8b",
         "messages": [{"role": "user", "content": "ping"}],
         "max_tokens": 5,
     }).encode("utf-8")
 
-    results = []
-    for key in GROQ_KEYS:
+    for idx, key in enumerate(CEREBRAS_KEYS, start=1):
         status, err = _post(
-            "https://api.groq.com/openai/v1/chat/completions",
+            "https://api.cerebras.ai/v1/chat/completions",
             payload,
             {
                 "Content-Type": "application/json",
                 "Authorization": f"Bearer {key}",
-                "User-Agent":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept":       "application/json",
-                "Origin":       "https://console.groq.com",
-                "Referer":      "https://console.groq.com/",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
             },
+            timeout=6,
         )
         if status == 200:
-            return True, f"OK — {key[:18]}..."
+            return True, f"OK — chave {idx}"
         if status == 429:
-            return True, f"chave valida, rate-limit — {key[:18]}..."
-        results.append(f"HTTP {status}")
+            return True, f"chave {idx} valida, rate-limit"
+        if status == 401:
+            continue
+    return False, "todas as chaves invalidas ou sem acesso"
 
-    return False, f"todas as chaves falharam ({', '.join(set(results))})"
+
+def check_mistral():
+    """Mistral é o provider quality/conversa antes do OpenRouter."""
+    payload = json.dumps({
+        "model": "mistral-small-latest",
+        "messages": [{"role": "user", "content": "ping"}],
+        "max_tokens": 5,
+    }).encode("utf-8")
+
+    for idx, key in enumerate(MISTRAL_KEYS, start=1):
+        status, err = _post(
+            "https://api.mistral.ai/v1/chat/completions",
+            payload,
+            {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {key}",
+            },
+            timeout=8,
+        )
+        if status == 200:
+            return True, f"OK — chave {idx}"
+        if status == 429:
+            return True, f"chave {idx} valida, rate-limit"
+        if status == 401:
+            continue
+    return False, "todas as chaves invalidas ou sem acesso"
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -157,8 +186,9 @@ if __name__ == "__main__":
         ("Hyrule Proxy  :8765", check_proxy),
         ("Ollama        :11434", check_ollama),
         ("OpenCode      (MASTERSWORD)", check_opencode),
-        ("OpenRouter    (remoto)", check_openrouter),
-        ("Groq          (remoto)", check_groq),
+        ("Cerebras      (fast)", check_cerebras),
+        ("Mistral       (quality/chat)", check_mistral),
+        ("OpenRouter    (fallback)", check_openrouter),
     ]
 
     linhas = ["── Status das LLMs ──────────────────────"]

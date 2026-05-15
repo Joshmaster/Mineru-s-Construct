@@ -6,7 +6,7 @@
 ║                                                              ║
 ║  Intercepta o agent e redireciona para:                     ║
 ║    1. Ollama (principal)                                     ║
-║    2. OpenRouter ou Groq (com seleção prévia de provider)   ║
+║    2. OpenRouter (com seleção prévia de modelo)             ║
 ║                                                              ║
 ║  Novidades v2.0:                                            ║
 ║    - Seleção de provider/modelo no startup                  ║
@@ -47,29 +47,26 @@ def _find_agents_dir() -> Path | None:
     return None
 
 
-def _runtime_keys() -> tuple[list[str], list[str]]:
+def _runtime_keys() -> list[str]:
     agents_dir = _find_agents_dir()
     if agents_dir and str(agents_dir) not in sys.path:
         sys.path.insert(0, str(agents_dir))
     try:
-        from hyrule_env import OPENROUTER_KEYS, GROQ_KEYS
+        from hyrule_env import OPENROUTER_KEYS
     except ImportError:
         OPENROUTER_KEYS = []
-        GROQ_KEYS = []
-    return list(OPENROUTER_KEYS), list(GROQ_KEYS)
+    return list(OPENROUTER_KEYS)
 
 
 def _resolve_api_key(provider: str, value: str) -> str:
     if value and not value.startswith("${"):
         return value
-    openrouter_keys, groq_keys = _runtime_keys()
-    env_name = "OPENROUTER_KEY" if provider == "openrouter" else "GROQ_KEY"
-    keys = openrouter_keys if provider == "openrouter" else groq_keys
-    return os.environ.get(env_name) or (keys[0] if keys else "")
+    keys = _runtime_keys()
+    return os.environ.get("OPENROUTER_KEY") or (keys[0] if keys else "")
 
 
 def _resolve_config_secrets(config: dict) -> dict:
-    for provider in ("openrouter", "groq"):
+    for provider in ("openrouter",):
         cfg = config.get(provider)
         if isinstance(cfg, dict):
             cfg["api_key"] = _resolve_api_key(provider, cfg.get("api_key", ""))
@@ -598,28 +595,16 @@ def call_openrouter(messages, model, cfg, tools=None) -> tuple:
     )
 
 
-def call_groq(messages, model, cfg, tools=None) -> tuple:
-    return _openai_call(
-        messages,
-        cfg.get("endpoint", "https://api.groq.com/openai/v1/chat/completions"),
-        cfg.get("api_key", ""),
-        model,
-        tools=tools,
-    )
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Seleção de provider/modelo
 # ─────────────────────────────────────────────────────────────────────────────
 
 _API_CALLERS = {
     "openrouter": call_openrouter,
-    "groq":       call_groq,
 }
 
 _API_LABELS = {
     "openrouter": "OpenRouter",
-    "groq":       "Groq",
 }
 
 
@@ -989,7 +974,7 @@ BANNER = f"""
 {C_CYAN}{C_BOLD}
   ╔══════════════════════════════════════════════════════════╗
   ║   🗡  Hyrule Proxy  —  v2.0                             ║
-  ║       Ollama  →  OpenRouter / Groq (fallback)           ║
+  ║       Ollama  →  OpenRouter fallback                   ║
   ╠══════════════════════════════════════════════════════════╣
   ║   Porta : {PROXY_PORT:<47}║
   ║   Config: ~/.claude/HYRULE.md                           ║

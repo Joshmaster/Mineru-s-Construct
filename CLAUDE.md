@@ -32,24 +32,25 @@ Todos os arquivos em `~/Agents/`.
 Cada camada so e acionada se a anterior falhou:
 
 ```
-1. OpenRouter gpt-oss        → tenta primeiro (chamar via API)
-      ↓ falhou (429 / erro)
-2. Groq llama/kimi           → tenta (0.3s latencia)
+1. Cerebras llama3.1-8b      → FAST/chat curto, tenta primeiro
+      ↓ falhou / rate-limit
+2. Mistral small             → QUALITY/chat, tenta antes do OpenRouter
+      ↓ falhou / rate-limit
+3. OpenRouter gpt-oss        → fallback remoto gratis, mais lento
+      ↓ falhou / rate-limit
+4. Ollama qwen3:8b           → LOCAL, zero custo, tools e fallback
       ↓ falhou
-3. Ollama qwen2.5:1.5b       → LOCAL, zero custo, ~7s CPU
-      ↓ falhou
-4. Voce mesmo (sessao)       → processa so se TUDO acima falhou
+5. Voce mesmo (sessao)       → processa so se TUDO acima falhou
 ```
 
-**NAO existe agente local aqui. NAO tente executar nada localmente.**
-**Sempre comece pelo OpenRouter. So use voce mesmo como ultimo recurso.**
+**Use a cadeia atual configurada. So use voce mesmo como ultimo recurso.**
 
 # CRITICO — nao reinvente o que ja existe
 
 O supervisor `~/Agents/bot_supervisor.py` ja tem:
-- Rotacao automatica de chaves OpenRouter (3 chaves, 6 modelos)
-- Fallback para Groq com headers corretos
-- Fallback para Ollama qwen2.5:1.5b
+- Rotacao automatica de chaves dos providers configurados
+- Cerebras/Mistral/OpenRouter no link-bot, com hard timeout por thread
+- Ollama qwen3:8b local para tools e fallback
 - Tool calling completo (apagar_mensagens, buscar_internet, etc.)
 
 **NUNCA use curl ou reimplemente chamadas de API na mao.**

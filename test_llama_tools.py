@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Teste isolado: valida que llama3.2:3b consegue usar tools do supervisor.
-Bypassa OpenRouter e Groq — usa SOMENTE Ollama local.
+Bypassa providers cloud — usa SOMENTE Ollama local.
 """
 import json, os, sys, time, urllib.request
 from pathlib import Path

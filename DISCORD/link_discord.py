@@ -23,11 +23,17 @@ import sys as _sys
 from pathlib import Path as _Path
 _sys.path.insert(0, str(_Path(__file__).parent.parent))
 try:
-    from hyrule_env import DISCORD_TOKEN as TOKEN, OPENROUTER_KEYS, GROQ_KEYS
+    from hyrule_env import (
+        DISCORD_TOKEN as TOKEN,
+        OPENROUTER_KEYS,
+        CEREBRAS_KEYS,
+        MISTRAL_KEYS,
+    )
 except ImportError:
     TOKEN = ""
     OPENROUTER_KEYS = []
-    GROQ_KEYS = []
+    CEREBRAS_KEYS = []
+    MISTRAL_KEYS = []
 
 try:
     from hyrule_env import DISCORD_REMINDER_CHANNEL_ID as _REMINDER_CH_ID
@@ -37,10 +43,24 @@ except ImportError:
 OLLAMA_URL   = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "qwen3:8b"
 MODELOS_FALLBACK = [
-    {"url": "https://openrouter.ai/api/v1/chat/completions",   "model": "google/gemma-4-31b-it:free",               "keys": OPENROUTER_KEYS},
-    {"url": "https://api.groq.com/openai/v1/chat/completions", "model": "meta-llama/llama-4-scout-17b-16e-instruct","keys": GROQ_KEYS},
-    {"url": "https://openrouter.ai/api/v1/chat/completions",   "model": "meta-llama/llama-3.3-70b-instruct:free",   "keys": OPENROUTER_KEYS},
-    {"url": "https://openrouter.ai/api/v1/chat/completions",   "model": "nvidia/nemotron-3-super-120b-a12b:free",   "keys": OPENROUTER_KEYS},
+    {
+        "url": "https://api.cerebras.ai/v1/chat/completions",
+        "model": "llama3.1-8b",
+        "keys": CEREBRAS_KEYS,
+        "headers": {"User-Agent": "Mozilla/5.0"},
+    },
+    {
+        "url": "https://api.mistral.ai/v1/chat/completions",
+        "model": "mistral-small-latest",
+        "keys": MISTRAL_KEYS,
+    },
+    {
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "model": "openai/gpt-oss-20b:free",
+        "keys": OPENROUTER_KEYS,
+        "headers": {"HTTP-Referer": "https://hyrule.local", "X-Title": "LinkDiscord"},
+        "extra": {"reasoning": {"enabled": True, "effort": "low", "exclude": True}},
+    },
 ]
 _fallback_modelo_idx = 0
 _fallback_key_idx    = 0
@@ -144,6 +164,44 @@ async def _safe_react(message, emoji: str):
         print(f"[REACT] falhou {emoji}: {e}", flush=True)
 
 
+class _DiscordProgressMsg:
+    """Mensagem editável como barra de progresso no Discord."""
+
+    def __init__(self, msg):
+        self._msg = msg
+        self._bucket = -1
+
+    async def update(self, pct: float, label: str = ""):
+        if delirius_dl is None:
+            return
+        bucket = int(min(max(pct, 0), 1.0) * 10)  # 0-10 inclusive; 1.0 → 10
+        if bucket <= self._bucket:  # nunca retrocede
+            return
+        self._bucket = bucket
+        try:
+            await self._msg.edit(content=delirius_dl._bar_text(pct, label))
+        except Exception:
+            pass
+
+    async def animate_bg(self, start: float, end: float, label: str, total_secs: float = 55.0):
+        n = max(1, int((end - start) * 10))
+        per_step = total_secs / n
+        cur = start
+        step = (end - start) / n
+        for _ in range(n):
+            await asyncio.sleep(per_step)
+            cur = min(cur + step, end)
+            await self.update(cur, label)
+
+    async def finish(self, label: str = "✅ pronto!"):
+        if delirius_dl is None:
+            return
+        try:
+            await self._msg.edit(content=delirius_dl._bar_text(1.0, label))
+        except Exception:
+            pass
+
+
 async def _discord_spot(message, autor: str, query: str):
     if delirius_dl is None:
         await message.reply("o módulo de música não carregou aqui")
@@ -159,6 +217,15 @@ async def _discord_spot(message, autor: str, query: str):
 
     await _safe_react(message, "⚔️")
 
+    # YouTube intent vai direto pro handler dedicado
+    norm = query.lower()
+    if delirius_dl._is_youtube_intent(query, norm):
+        await _discord_yt(message, autor, query)
+        return
+
+    prog_msg = await message.channel.send(delirius_dl._bar_text(0, "🔍 buscando..."))
+    prog = _DiscordProgressMsg(prog_msg)
+
     prefer_original = not delirius_dl._allows_alternate_version(query)
     spotify_url = ""
     fallback_query = query
@@ -167,6 +234,16 @@ async def _discord_spot(message, autor: str, query: str):
     url_match = delirius_dl._RE_SPOTIFY.search(query)
     if url_match:
         spotify_url = url_match.group(0)
+        spotify_title = await asyncio.to_thread(delirius_dl._spotify_oembed_title, spotify_url)
+        lookup = spotify_title or query
+        result = delirius_dl._spotify_search(lookup, prefer_original=prefer_original)
+        if result and result.get("url"):
+            fallback_query = " ".join(str(x) for x in (
+                result.get("title") or result.get("name") or "",
+                result.get("artist") or result.get("author") or "",
+            ) if x).strip() or lookup
+            label = fallback_query
+            spotify_url = result.get("url") or spotify_url
     else:
         candidates = delirius_dl._spotify_search_candidates(query)
         result = None
@@ -186,45 +263,115 @@ async def _discord_spot(message, autor: str, query: str):
         if used_query:
             print(f"[DISCORD !spot] '{query}' -> '{used_query}' => {label}", flush=True)
 
-    async def _send_audio_from_media(media_url: str, source_text: str) -> bool:
-        path = await delirius_dl._baixar(media_url, "mp3")
-        if not path:
-            return False
-        try:
-            filename = "spot.mp3"
-            await message.reply(content=source_text, file=discord.File(path, filename=filename))
-            await _safe_react(message, "✅")
-            registrar("OUT", "Link", autor, f"[ARQUIVO: {filename}] {source_text}")
-            return True
-        finally:
-            delirius_dl._rm(path)
+    await prog.update(0.2, "⬇️ baixando...")
 
     if spotify_url:
-        data = delirius_dl._get_json("/download/spotifydl", {"url": spotify_url}, timeout=90, attempts=2)
-        media_url = delirius_dl._extract_url(data) if isinstance(data, dict) else None
-        if media_url:
-            title = delirius_dl._extract_title(data) or label
-            artist = delirius_dl._extract_artist(data)
-            header = f"{title} — {artist}".strip(" —")
-            if await _send_audio_from_media(media_url, f"{header}\nSpotify: {spotify_url}"):
-                return
+        if delirius_dl._RE_YT.search(spotify_url):
+            _anim = asyncio.create_task(prog.animate_bg(0.21, 0.88, "⬇️ baixando...", 55))
+            async def on_local_dl(pct: float):
+                await prog.update(0.2 + pct * 0.65, "⬇️ baixando...")
+            path, info = await delirius_dl._yt_dlp_download(spotify_url, "mp3", progress_cb=on_local_dl)
+            _anim.cancel()
+            if path:
+                try:
+                    await prog.update(0.95, "🎵 convertendo...")
+                    title = info.get("title") or label
+                    await message.reply(content=f"{title}\nYouTube: {spotify_url}", file=discord.File(path, filename="spot.mp3"))
+                    await _safe_react(message, "✅")
+                    await prog.finish("✅ pronto!")
+                    registrar("OUT", "Link", autor, f"[ARQUIVO: spot.mp3] {title}\nYouTube: {spotify_url}")
+                    return
+                finally:
+                    delirius_dl._rm(path)
 
     yt = delirius_dl._youtube_search(fallback_query, prefer_original=prefer_original)
     yt_url = (yt or {}).get("url")
     if yt_url:
-        data = (
-            delirius_dl._get_json("/download/ytmp3", {"url": yt_url}, timeout=45, attempts=2)
-            or delirius_dl._get_json("/download/ytmp3v2", {"url": yt_url}, timeout=45, attempts=2)
-        )
-        media_url = delirius_dl._extract_url(data) if data else None
-        if media_url:
-            title = delirius_dl._extract_title(data) or (yt or {}).get("title") or fallback_query
-            if await _send_audio_from_media(media_url, f"{title}\nYouTube: {yt_url}"):
+        _anim = asyncio.create_task(prog.animate_bg(0.21, 0.88, "⬇️ baixando...", 55))
+        async def on_fallback_dl(pct: float):
+            await prog.update(0.2 + pct * 0.65, "⬇️ baixando...")
+        path, info = await delirius_dl._yt_dlp_download(yt_url, "mp3", progress_cb=on_fallback_dl)
+        _anim.cancel()
+        if path:
+            try:
+                await prog.update(0.95, "🎵 convertendo...")
+                title = info.get("title") or (yt or {}).get("title") or fallback_query
+                await message.reply(content=f"{title}\nYouTube: {yt_url}", file=discord.File(path, filename="spot.mp3"))
+                await _safe_react(message, "✅")
+                await prog.finish("✅ pronto!")
+                registrar("OUT", "Link", autor, f"[ARQUIVO: spot.mp3] {title}\nYouTube: {yt_url}")
                 return
+            finally:
+                delirius_dl._rm(path)
 
+    await prog_msg.delete()
     await message.reply("não consegui baixar essa música agora")
     await _safe_react(message, "⚠️")
     registrar("OUT", "Link", autor, "não consegui baixar essa música agora")
+
+
+async def _discord_yt(message, autor: str, query: str, modo: str = "mp3"):
+    """Baixa áudio/vídeo do YouTube no Discord com barra de progresso."""
+    if delirius_dl is None:
+        await message.reply("módulo de mídia não carregou")
+        return
+    query = (query or "").strip()
+    if not query:
+        await message.reply("qual música ou vídeo do YouTube?")
+        return
+
+    prog_msg = await message.channel.send(delirius_dl._bar_text(0, "🔍 buscando..."))
+    prog = _DiscordProgressMsg(prog_msg)
+
+    yt_url = None
+    title_hint = query
+    url_match = delirius_dl._RE_YT.search(query)
+    if url_match:
+        yt_url = url_match.group(0)
+    else:
+        clean = delirius_dl._youtube_clean_query(query)
+        result = delirius_dl._youtube_search(clean)
+        yt_url = (result or {}).get("url")
+        title_hint = (result or {}).get("title") or clean
+
+    if not yt_url:
+        await prog_msg.delete()
+        await message.reply("não achei isso no YouTube")
+        return
+
+    await prog.update(0.2, "⬇️ baixando...")
+
+    if modo == "mp4":
+        ext = "mp4"
+        icon = "📹"
+    else:
+        ext = "mp3"
+        icon = "🎵"
+
+    _anim = asyncio.create_task(prog.animate_bg(0.21, 0.88, "⬇️ baixando...", 55))
+
+    async def on_dl(pct: float):
+        await prog.update(0.2 + pct * 0.7, "⬇️ baixando...")
+
+    path, info = await delirius_dl._yt_dlp_download(yt_url, ext, progress_cb=on_dl)
+    _anim.cancel()
+    title = info.get("title") or title_hint
+    if not path:
+        await prog_msg.delete()
+        await message.reply("não consegui baixar o arquivo")
+        return
+
+    caption = f"{icon} {title}\nYouTube: {yt_url}".strip()
+
+    await prog.update(0.95, "🎵 convertendo...")
+    try:
+        filename = f"audio.{ext}" if ext == "mp3" else f"video.{ext}"
+        await message.reply(content=caption, file=discord.File(path, filename=filename))
+        await _safe_react(message, "✅")
+        await prog.finish("✅ pronto!")
+        registrar("OUT", "Link", autor, f"[ARQUIVO: {filename}] {caption}")
+    finally:
+        delirius_dl._rm(path)
 
 
 # ── Lembretes Discord ────────────────────────────────────────────────────────
@@ -686,7 +833,7 @@ async def responder_com_ia(autor: str, mensagem: str) -> str:
     system = carregar_persona(ultima_resposta, autor)
     msgs   = [{"role": "system", "content": system}, *historico_ia[autor]]
 
-    # ── 1. Cloud (gemma/llama/groq) — melhor para persona ────────────────────
+    # ── 1. Cloud fallback — Cerebras → Mistral → OpenRouter ──────────────────
     tentados = 0
     tentativas_total = sum(len(m["keys"]) for m in MODELOS_FALLBACK)
     while tentados < tentativas_total:
@@ -694,17 +841,21 @@ async def responder_com_ia(autor: str, mensagem: str) -> str:
         chave  = modelo["keys"][_fallback_key_idx % len(modelo["keys"])]
         try:
             async with aiohttp_client.ClientSession() as session:
-                is_groq = "groq.com" in modelo["url"]
-                headers = {"Authorization": f"Bearer {chave}", "Content-Type": "application/json"}
-                if is_groq:
-                    headers.update({"User-Agent": "Mozilla/5.0", "Accept": "application/json",
-                                    "Origin": "https://console.groq.com", "Referer": "https://console.groq.com/"})
+                headers = {
+                    "Authorization": f"Bearer {chave}",
+                    "Content-Type": "application/json",
+                    **modelo.get("headers", {}),
+                }
+                payload = {
+                    "model": modelo["model"],
+                    "messages": msgs,
+                    "max_tokens": 256,
+                    "temperature": 0.85,
+                    **modelo.get("extra", {}),
+                }
                 async with session.post(
                     modelo["url"], headers=headers,
-                    json={"model": modelo["model"], "messages": msgs,
-                          "max_tokens": 256, "temperature": 0.85,
-                          **({"reasoning": {"enabled": True, "effort": "low", "exclude": True}}
-                             if not is_groq else {})},
+                    json=payload,
                     timeout=aiohttp_client.ClientTimeout(total=12)
                 ) as resp:
                     if resp.status in (401, 403):
@@ -765,7 +916,7 @@ async def responder_com_ia(autor: str, mensagem: str) -> str:
 
 
 async def responder_com_ia_local(autor: str, mensagem: str, think: bool = False) -> str:
-    """Força conversa direta com o Ollama local, sem OpenRouter/Groq."""
+    """Força conversa direta com o Ollama local, sem providers cloud."""
     if autor not in historico_ia:
         historico_ia[autor] = carregar_historico(autor)
 
@@ -925,6 +1076,10 @@ async def _executar_skill_discord(message: discord.Message, autor: str, skill: s
     if skill == "spot":
         async with message.channel.typing():
             await _discord_spot(message, autor, args)
+    elif skill == "yt":
+        modo = "mp4" if any(w in args.lower() for w in ("vídeo", "video", "mp4")) else "mp3"
+        async with message.channel.typing():
+            await _discord_yt(message, autor, args, modo=modo)
     elif skill == "imagem":
         if _bot_supervisor is None:
             return
@@ -1214,6 +1369,13 @@ async def on_message(message):
             await _discord_spot(message, autor, pedido_spot)
         return
 
+    if re.match(r'^!?\s*(yt|ytmp3|ytv|ytmp4)\b', _txt_norm):
+        modo_yt = "mp4" if re.match(r'^!?\s*(ytv|ytmp4)\b', _txt_norm) else "mp3"
+        pedido_yt = re.sub(r'^!?\s*(?:ytv|ytmp4|ytmp3|yt)\s*', '', _txt, flags=re.IGNORECASE).strip()
+        async with message.channel.typing():
+            await _discord_yt(message, autor, pedido_yt, modo=modo_yt)
+        return
+
     if re.match(r'^triforce\b', _txt_norm):
         # Extrai o pedido (tudo depois de "TRIFORCE")
         pedido_tf = re.sub(r'^triforce\s*', '', _txt, flags=re.IGNORECASE).strip()
@@ -1264,6 +1426,7 @@ async def on_message(message):
         from bot.core import llm as _llm
         _DISCORD_SKILLS = [
             {"name": "spot",        "description": "tocar, baixar ou buscar música, faixa, song, spotify, canção, trilha sonora"},
+            {"name": "yt",          "description": "YouTube, baixar áudio ou vídeo do YouTube, !yt, ytmp3, ytmp4"},
             {"name": "imagem",      "description": "buscar, baixar ou enviar imagem, foto, ilustração, arte, picture, wallpaper"},
             {"name": "triforce",    "description": "tarefa de programação, código, bug, implementar feature, deploy, Claude Code, TRIFORCE"},
             {"name": "majora",      "description": "tarefa para Codex CLI, análise de código, refatorar, Majora"},

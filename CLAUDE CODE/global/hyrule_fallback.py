@@ -3,7 +3,7 @@
 """
 ╔══════════════════════════════════════════════════════════════╗
 ║          Hyrule Fallback CLI  —  v1.0                       ║
-║  Sistema de fallback: Ollama → OpenRouter / Groq            ║
+║  Sistema de fallback: Ollama → OpenRouter                   ║
 ║                                                              ║
 ║  Lê configuração de: ~/.claude/HYRULE.md                    ║
 ║  Salva histórico em: ~/.claude/conversation_history.json    ║
@@ -44,29 +44,26 @@ def _find_agents_dir() -> Path | None:
     return None
 
 
-def _runtime_keys() -> tuple[list[str], list[str]]:
+def _runtime_keys() -> list[str]:
     agents_dir = _find_agents_dir()
     if agents_dir and str(agents_dir) not in sys.path:
         sys.path.insert(0, str(agents_dir))
     try:
-        from hyrule_env import OPENROUTER_KEYS, GROQ_KEYS
+        from hyrule_env import OPENROUTER_KEYS
     except ImportError:
         OPENROUTER_KEYS = []
-        GROQ_KEYS = []
-    return list(OPENROUTER_KEYS), list(GROQ_KEYS)
+    return list(OPENROUTER_KEYS)
 
 
 def _resolve_api_key(provider: str, value: str) -> str:
     if value and not value.startswith("${"):
         return value
-    openrouter_keys, groq_keys = _runtime_keys()
-    env_name = "OPENROUTER_KEY" if provider == "openrouter" else "GROQ_KEY"
-    keys = openrouter_keys if provider == "openrouter" else groq_keys
-    return os.environ.get(env_name) or (keys[0] if keys else "")
+    keys = _runtime_keys()
+    return os.environ.get("OPENROUTER_KEY") or (keys[0] if keys else "")
 
 
 def _resolve_config_secrets(config: dict) -> dict:
-    for provider in ("openrouter", "groq"):
+    for provider in ("openrouter",):
         cfg = config.get(provider)
         if isinstance(cfg, dict):
             cfg["api_key"] = _resolve_api_key(provider, cfg.get("api_key", ""))
@@ -388,27 +385,16 @@ def call_openrouter(messages: list, model: str, cfg: dict) -> str | None:
     return _openai_compat_call(messages, endpoint, api_key, model, extra)
 
 
-def call_groq(messages: list, model: str, cfg: dict) -> str | None:
-    endpoint = cfg.get("endpoint", "https://api.groq.com/openai/v1/chat/completions")
-    api_key  = cfg.get("api_key", "")
-    if not api_key:
-        print(col("❌ Groq: api_key não configurada no HYRULE.md.", C_RED))
-        return None
-    return _openai_compat_call(messages, endpoint, api_key, model)
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Seleção interativa de fallback
 # ─────────────────────────────────────────────────────────────────────────────
 
 _API_LABELS = {
     "openrouter": "OpenRouter",
-    "groq":       "Groq",
 }
 
 _API_CALLERS = {
     "openrouter": call_openrouter,
-    "groq":       call_groq,
 }
 
 
@@ -530,7 +516,7 @@ BANNER = f"""
 {C_CYAN}{C_BOLD}
   ╔══════════════════════════════════════════════════════════╗
   ║   🗡  Hyrule Fallback CLI  —  v1.0                      ║
-  ║       Ollama principal  →  OpenRouter / Groq fallback   ║
+  ║       Ollama principal  →  OpenRouter fallback          ║
   ╠══════════════════════════════════════════════════════════╣
   ║   Histórico global: ~/.claude/conversation_history.json ║
   ║   Config global  : ~/.claude/HYRULE.md                  ║

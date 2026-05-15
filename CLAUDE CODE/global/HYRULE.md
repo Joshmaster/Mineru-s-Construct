@@ -88,22 +88,4 @@ fallback:
     no_tool_use:
       - arcee-ai/trinity-large-preview:free
       - z-ai/glm-4.5-air:free
-
-  # Fallback 2 — Groq
-  # IMPORTANTE: Groq NAO usa sufixo :free — limites sao por cota diaria de tokens
-  # Modelos verificados em abril/2026 (sem os deprecados)
-  groq:
-    endpoint: https://api.groq.com/openai/v1/chat/completions
-    api_key: ${GROQ_KEY}
-    models:
-      # --- COM COTA DIARIA GRATUITA ---
-      - llama-3.3-70b-versatile
-      - llama-3.1-8b-instant
-      - qwen/qwen3-32b
-      # --- PAGOS / SEM LIMITE ---
-      - openai/gpt-oss-120b
-      - openai/gpt-oss-20b
-      - meta-llama/llama-4-scout-17b-16e-instruct
-    no_tool_use:
-      - llama-3.1-8b-instant
 ```

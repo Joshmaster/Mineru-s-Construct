@@ -34,23 +34,9 @@ MAX_HISTORY  = 10
 CLAUDE_TIMEOUT = 45  # segundos
 
 try:
-    from hyrule_env import GROQ_KEYS, WA_OWNER
+    from hyrule_env import WA_OWNER
 except ImportError:
-    GROQ_KEYS = []
     WA_OWNER  = ""
-GROQ_MODELS = [
-    "moonshotai/kimi-k2-instruct",
-    "llama-3.3-70b-versatile",
-    "llama-3.1-8b-instant",
-]
-GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
-GROQ_HEADERS_BASE = {
-    "Content-Type": "application/json",
-    "User-Agent":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept":       "application/json",
-    "Origin":       "https://console.groq.com",
-    "Referer":      "https://console.groq.com/",
-}
 
 SYSTEM_PROMPT = """Voce e Link, heroi de Hyrule e parceiro tecnico do dono do sistema.
 Claude Code/TRIFORCE e apenas a ponte operacional; nao trate isso como sua identidade em conversa.
@@ -135,30 +121,6 @@ def salvar_historico(canal: str, usuario: str, hist: list):
     _hist_path(canal, usuario).write_text(
         json.dumps(hist, ensure_ascii=False, indent=2), encoding="utf-8"
     )
-
-
-# ── LLM (Groq) ────────────────────────────────────────────────────────────────
-
-def chamar_groq(messages: list) -> str | None:
-    for key in GROQ_KEYS:
-        for model in GROQ_MODELS:
-            headers = {**GROQ_HEADERS_BASE, "Authorization": f"Bearer {key}"}
-            payload = {
-                "model":       model,
-                "messages":    messages,
-                "temperature": 0.7,
-                "max_tokens":  512,
-            }
-            resp = _post_json(GROQ_URL, payload, headers, timeout=15)
-            if resp:
-                try:
-                    texto = resp["choices"][0]["message"]["content"].strip()
-                    if texto:
-                        log(f"Groq ok: {model}")
-                        return texto
-                except Exception:
-                    pass
-    return None
 
 
 # ── Claude --continue (sessao ativa com contexto completo) ────────────────────

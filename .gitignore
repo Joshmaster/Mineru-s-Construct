@@ -55,10 +55,14 @@ token_usage.log
 .mastersword_pid
 .mastersword_processing.lock
 .proxy_pid
+.bot_pid
+.discord_pid
+.whatsapp_pid
 .itch_monitor_pid
 itch_state.json
 DISCORD/.bot_pid
 DISCORD/.supervisor_pid
+DISCORD/.discord_pid
 
 # ── Logs ──────────────────────────────────────────────────────────────────────
 *.log

@@ -16,9 +16,6 @@ if exist "%SECRETS%" (
     call "%SECRETS%"
 ) else (
     REM Tenta usar variaveis ja definidas no ambiente
-    if "%GROQ_API_KEY%"=="" (
-        echo  [AVISO] GROQ_API_KEY nao definida.
-    )
     if "%OPENROUTER_API_KEY%"=="" (
         echo  [AVISO] OPENROUTER_API_KEY nao definida.
     )

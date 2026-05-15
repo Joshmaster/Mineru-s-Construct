@@ -3,8 +3,8 @@ LLM hub do Link-bot — hierarquia de providers e helpers de IA.
 
 Hierarquia por tier:
   FAST    → Cerebras llama3.1-8b (~0.3s) → OpenRouter → Ollama
-  QUALITY → OpenRouter → Mistral small → Ollama
-  CHAT    → OpenRouter → Mistral → Ollama compact
+  QUALITY → Mistral small → OpenRouter → Ollama
+  CHAT    → Cerebras llama3.1-8b → Mistral → OpenRouter → Ollama compact
   EMOJI   → Ollama only (latência não justifica cloud)
 """
 
@@ -373,10 +373,10 @@ def _call_ollama(messages: list, think: bool = False, num_predict: int = 100,
 # FAST    → Cerebras 8b (~0.3s) → OpenRouter → Ollama
 #           Desiste rápido; Cerebras cobre bem JSON simples e classificação.
 #
-# QUALITY → OpenRouter → Mistral small → Ollama
-#           Dá mais tempo; Mistral é bom fallback para geração criativa.
+# QUALITY → Mistral small → OpenRouter → Ollama
+#           Mistral é estável e rápido; OpenRouter fica como fallback.
 #
-# CHAT    → OpenRouter → Mistral → Ollama compact
+# CHAT    → Cerebras 8b → Mistral → OpenRouter → Ollama compact
 #           Contexto completo com persona; Ollama recebe versão reduzida.
 #
 # EMOJI   → Ollama only — latência de cloud não justifica para reação.

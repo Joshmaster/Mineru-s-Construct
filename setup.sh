@@ -4,7 +4,8 @@
 # Uso:
 #   export DISCORD_TOKEN="..."
 #   export OPENROUTER_KEY_1="..." OPENROUTER_KEY_2="..." OPENROUTER_KEY_3="..."
-#   export GROQ_KEY_1="..."       GROQ_KEY_2="..."       GROQ_KEY_3="..."
+#   export CEREBRAS_KEY_1="..."   CEREBRAS_KEY_2="..."   CEREBRAS_KEY_3="..."
+#   export MISTRAL_KEY_1="..."    MISTRAL_KEY_2="..."    MISTRAL_KEY_3="..."
 #   export WA_OWNER="..."         WA_ALLOW_FROM="..."
 #   bash setup.sh
 
@@ -15,7 +16,7 @@ OUT="$SCRIPT_DIR/hyrule_env.py"
 
 # ── Validar variáveis obrigatórias ────────────────────────────────────────────
 MISSING=()
-for VAR in DISCORD_TOKEN OPENROUTER_KEY_1 GROQ_KEY_1 WA_OWNER WA_ALLOW_FROM; do
+for VAR in DISCORD_TOKEN OPENROUTER_KEY_1 CEREBRAS_KEY_1 MISTRAL_KEY_1 WA_OWNER WA_ALLOW_FROM; do
     [[ -z "${!VAR}" ]] && MISSING+=("$VAR")
 done
 
@@ -45,10 +46,16 @@ OPENROUTER_KEYS = [k for k in [
     "${OPENROUTER_KEY_3:-}",
 ] if k]
 
-GROQ_KEYS = [k for k in [
-    "${GROQ_KEY_1}",
-    "${GROQ_KEY_2:-}",
-    "${GROQ_KEY_3:-}",
+CEREBRAS_KEYS = [k for k in [
+    "${CEREBRAS_KEY_1}",
+    "${CEREBRAS_KEY_2:-}",
+    "${CEREBRAS_KEY_3:-}",
+] if k]
+
+MISTRAL_KEYS = [k for k in [
+    "${MISTRAL_KEY_1}",
+    "${MISTRAL_KEY_2:-}",
+    "${MISTRAL_KEY_3:-}",
 ] if k]
 
 WA_OWNER = "${WA_OWNER}"

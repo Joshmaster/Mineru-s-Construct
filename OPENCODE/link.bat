@@ -21,10 +21,6 @@ if exist "%SECRETS%" (
 
 echo  Escolha o modelo:
 echo.
-echo  --- GROQ ---
-echo   [1]  LLaMA 4 Scout 17B
-echo        Rapido, gratis. Persona OK. Edit/bash bugados (tipos errados no schema).
-echo.
 echo  --- OPENROUTER (gratuito) ---
 echo   [10] GPT OSS 120B
 echo        Tools OK (bash, edit, read, glob, grep). Recomendado para codigo.
@@ -64,7 +60,6 @@ echo.
 
 set /p CHOICE=" Opcao: "
 
-if "%CHOICE%"=="1"  set "MODEL=groq/meta-llama/llama-4-scout-17b-16e-instruct"
 if "%CHOICE%"=="10" set "MODEL=openrouter/openai/gpt-oss-120b:free"
 if "%CHOICE%"=="11" set "MODEL=openrouter/nvidia/nemotron-3-super-120b-a12b:free"
 if "%CHOICE%"=="12" set "MODEL=openrouter/google/gemma-4-31b-it:free"
@@ -91,17 +86,8 @@ if "%MODEL%"=="" (
 echo.
 echo  Modelo selecionado: %MODEL%
 
-REM Rotacao de chaves GROQ (opcao 1)
-if "%CHOICE%"=="1" (
-    set /a "GROQ_IDX=!RANDOM! %% 3"
-    if "!GROQ_IDX!"=="0" set "GROQ_API_KEY=!GROQ_API_KEY!"
-    if "!GROQ_IDX!"=="1" set "GROQ_API_KEY=!GROQ_API_KEY_2!"
-    if "!GROQ_IDX!"=="2" set "GROQ_API_KEY=!GROQ_API_KEY_3!"
-    echo  Chave GROQ: #!GROQ_IDX!
-)
-
 REM Rotacao de chaves OpenRouter (opcoes 10-22)
-if not "%CHOICE%"=="1" if not "%CHOICE%"=="23" if not "%CHOICE%"=="24" (
+if not "%CHOICE%"=="23" if not "%CHOICE%"=="24" (
     set /a "OR_IDX=!RANDOM! %% 3"
     if "!OR_IDX!"=="0" set "OPENROUTER_API_KEY=!OPENROUTER_API_KEY!"
     if "!OR_IDX!"=="1" set "OPENROUTER_API_KEY=!OPENROUTER_API_KEY_2!"

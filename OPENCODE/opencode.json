@@ -1,14 +1,6 @@
 {
   "$schema": "https://opencode.ai/config.json",
   "provider": {
-    "groq": {
-      "api": "https://api.groq.com/openai/v1",
-      "env": ["GROQ_API_KEY"],
-      "models": {
-        "llama-3.3-70b-versatile": { "name": "LLaMA 3.3 70B (gratuito)" },
-        "llama-3.1-8b-instant":    { "name": "LLaMA 3.1 8B (rapido)" }
-      }
-    },
     "openrouter": {
       "api": "https://openrouter.ai/api/v1",
       "env": ["OPENROUTER_API_KEY"],
@@ -29,7 +21,7 @@
       }
     }
   },
-  "model": "groq/llama-3.3-70b-versatile",
+  "model": "openrouter/openai/gpt-oss-20b:free",
   "instructions": [
     "~/Agents/OPENCODE/LINK_PERSONA.md"
   ]

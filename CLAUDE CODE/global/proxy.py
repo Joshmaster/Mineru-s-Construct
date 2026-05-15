@@ -6,7 +6,7 @@
 ║                                                              ║
 ║  Intercepta o agent e redireciona para:                     ║
 ║    1. Ollama (principal)                                     ║
-║    2. OpenRouter ou Groq (com seleção prévia de provider)   ║
+║    2. OpenRouter (com seleção prévia de modelo)             ║
 ║                                                              ║
 ║  Novidades v2.0:                                            ║
 ║    - Seleção de provider/modelo no startup                  ║
@@ -562,28 +562,16 @@ def call_openrouter(messages, model, cfg, tools=None) -> tuple:
     )
 
 
-def call_groq(messages, model, cfg, tools=None) -> tuple:
-    return _openai_call(
-        messages,
-        cfg.get("endpoint", "https://api.groq.com/openai/v1/chat/completions"),
-        cfg.get("api_key", ""),
-        model,
-        tools=tools,
-    )
-
-
 # ─────────────────────────────────────────────────────────────────────────────
 # Seleção de provider/modelo
 # ─────────────────────────────────────────────────────────────────────────────
 
 _API_CALLERS = {
     "openrouter": call_openrouter,
-    "groq":       call_groq,
 }
 
 _API_LABELS = {
     "openrouter": "OpenRouter",
-    "groq":       "Groq",
 }
 
 
@@ -953,7 +941,7 @@ BANNER = f"""
 {C_CYAN}{C_BOLD}
   ╔══════════════════════════════════════════════════════════╗
   ║   🗡  Hyrule Proxy  —  v2.0                             ║
-  ║       Ollama  →  OpenRouter / Groq (fallback)           ║
+  ║       Ollama  →  OpenRouter fallback                   ║
   ╠══════════════════════════════════════════════════════════╣
   ║   Porta : {PROXY_PORT:<47}║
   ║   Config: ~/.claude/HYRULE.md                           ║

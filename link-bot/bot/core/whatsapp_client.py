@@ -135,6 +135,33 @@ class WhatsAppClient:
         resp = await http.post("/send/sticker", json=payload)
         resp.raise_for_status()
 
+    async def edit_message(self, jid, msg_id: str, new_text: str) -> bool:
+        if not msg_id:
+            return False
+        try:
+            http = self._client()
+            resp = await http.post("/send/edit", json={
+                "jid": self._jid_str(jid),
+                "msgId": msg_id,
+                "text": str(new_text),
+            })
+            return resp.status_code == 200
+        except Exception:
+            return False
+
+    async def delete_message(self, jid, msg_id: str) -> bool:
+        if not msg_id:
+            return False
+        try:
+            http = self._client()
+            resp = await http.post("/send/delete", json={
+                "jid": self._jid_str(jid),
+                "msgId": msg_id,
+            })
+            return resp.status_code == 200
+        except Exception:
+            return False
+
     async def send_reaction(self, jid, msg_id: str, emoji: str, from_me: bool = False):
         http = self._client()
         try:

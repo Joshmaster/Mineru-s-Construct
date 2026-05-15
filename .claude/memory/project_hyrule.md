@@ -10,14 +10,13 @@ Todos os agentes ficam em `~/Agents/`.
 
 ### Bot Discord — Link (`DISCORD/link_discord.py`)
 - Responde OWNER (`DISCORD_OWNER_USERNAME`) e USER2 (`DISCORD_USER_2`) via DM no Discord
-- Usa LLMs free tier (OpenRouter + Groq) com fallback entre modelos
+- Usa a cadeia atual de LLMs do Hyrule: Cerebras/Mistral/OpenRouter/Ollama, sem Groq
 - Persona carregada de `OPENCODE/roaming/LINK_PERSONA.md`
 - Quando OWNER pede algo do PC, gera tag `[SHEIKAH_SLATE: descrição]`
 - `sanitizar()` centralizado remove a tag antes de enviar ao usuário
 - Comando especial `!Link acorde` → limpa tudo e reinicia (sem precisar da TRIFORCE)
 - Parâmetros API: `temperature=0.85`, `frequency_penalty=0.7`, `presence_penalty=0.4`
 - Histórico: últimas 10 trocas (20 entradas) por usuário
-- **Groq requer headers especiais** — sem eles retorna 403/1010 Cloudflare
 
 ### Supervisor (`bot_supervisor.py`)
 - Daemon permanente que monitora `DISCORD/discord.log` em tempo real
@@ -25,9 +24,8 @@ Todos os agentes ficam em `~/Agents/`.
 - **Fluxo de resolução (ordem de prioridade):**
   1. `executar_pedido()` — Python puro, zero tokens (padrões hardcoded + navegação de pastas)
   2. `executar_qwen_react()` — qwen3:8b ReAct loop (até 5 rodadas, todas as tools)
-  3. `chamar_agente_tools()` — OpenRouter (gpt-oss-20b → gpt-oss-120b → nemotron → trinity → llama → gemma)
-  4. `chamar_groq_tools()` — Groq 0.3s
-  5. `enfileirar_para_claude()` — TRIFORCE como último recurso
+  3. Cloud configurado (Cerebras/Mistral/OpenRouter no link-bot; OpenRouter legacy no supervisor quando necessário)
+  4. `enfileirar_para_claude()` — TRIFORCE como último recurso
 - **Qwen tools:** `_selecionar_tools()` retorna todas as tools quando `OLLAMA_ALL_TOOLS=True` (qwen3:8b)
 - **`!zpensa` com tools:** Discord usa `responder_com_ia_local_tools()`; WhatsApp usa `chat_local_tools()` e atalho proprio para imagem. Busca web simples chama `buscar_internet()` direto; imagens/URLs de arquivo no Discord sempre passam por `/download` + `/send-file`, nao por link; ReAct de `!zpensa` usa tools filtradas por intent (`usar_todas_tools=False`, max 3 rodadas) para reduzir latencia.
 - **Deduplicação:** `pedidos_vistos` dict com chave `timestamp|pedido`, TTL 10 min — evita reprocessar mesmo evento, permite retry após TTL
@@ -52,6 +50,13 @@ Todos os agentes ficam em `~/Agents/`.
 - Ordem esperada: frase natural clara → detecção determinística local → classificador LLM → `!comando` fallback → chat normal.
 - No grupo WhatsApp, OWNER pode acionar funções por frase natural sem `!`; outros usuários continuam precisando mencionar o bot ou usar comando para evitar ruído.
 - Música/mídia: YouTube e Spotify aceitam busca por texto; link é opcional quando a skill consegue resolver por busca.
+
+### Mídia local via yt-dlp
+- `link-bot/bot/skills/delirius_dl.py` usa `yt-dlp` local como caminho primário para YouTube MP3/MP4.
+- Busca de música/Spotify por texto usa busca local do YouTube via `yt-dlp`; Delirius não é fallback de música.
+- Link Spotify resolve título por `open.spotify.com/oembed` e baixa a faixa equivalente pelo YouTube local.
+- Discord (`DISCORD/link_discord.py`) também usa os helpers locais para `!spot`/`!yt`, sem chamar `spotifydl`/`ytmp3`.
+- Instagram e Twitter/X tentam `yt-dlp` local primeiro; Delirius fica como fallback real para casos de login/bloqueio local.
 
 ### Comando `!Link acorde`
 - Detectado diretamente em `link_discord.py` (sem passar pelo LLM)
@@ -87,7 +92,7 @@ Todos os agentes ficam em `~/Agents/`.
 - Config versionada: `OPENCODE/mastersword.opencode.json`
 - Persona/config: `OPENCODE/roaming/MASTERSWORD_INSTRUCTIONS.md` + `OPENCODE/roaming/LINK_PERSONA.md`
 - Retomada: `opencode link` e `mastersword link` seguem a mesma rotina de `link link`/`codex link`
-- Modelos padrão: OpenRouter free → Ollama local (`qwen3:8b`); Groq fica configurado para uso user2al
+- Modelos padrão: OpenRouter free → Ollama local (`qwen3:8b`); Groq não faz parte da cadeia atual
 - Responde no canal do item: Discord (`localhost:7331`) ou WhatsApp (`localhost:7332`)
 - Usa `.mastersword_processing.lock`; stale após 15 min ou se o PID morreu
 
@@ -106,20 +111,12 @@ Todos os agentes ficam em `~/Agents/`.
 
 ## Modelos LLMs
 
-### OpenRouter (ordem no supervisor)
-1. `openai/gpt-oss-20b:free`
-2. `openai/gpt-oss-120b:free`
-3. `nvidia/nemotron-3-super-120b-a12b:free`
-4. `arcee-ai/trinity-large-preview:free`
-5. `meta-llama/llama-3.3-70b-instruct:free`
-6. `google/gemma-4-31b-it:free`
-
-### Groq (fallback, 0.3s)
-1. `llama-3.3-70b-versatile`
-2. `moonshotai/kimi-k2-instruct`
-3. `openai/gpt-oss-20b`
-4. `llama-3.1-8b-instant`
-- Headers obrigatórios para não ser bloqueado pelo Cloudflare
+### Cadeia atual do link-bot
+- `_call_fast`: Cerebras `llama3.1-8b` → OpenRouter `openai/gpt-oss-20b:free` → Ollama `qwen3:8b`
+- `_call_quality`: Mistral `mistral-small-latest` → OpenRouter `openai/gpt-oss-20b:free` → Ollama `qwen3:8b`
+- `chat()`: Cerebras `llama3.1-8b` → Mistral `mistral-small-latest` → OpenRouter `openai/gpt-oss-20b:free` → Ollama compact
+- `choose_reaction_emoji`: Ollama only
+- `check_llms.py` valida Cerebras, Mistral, OpenRouter e Ollama. Groq não é checado.
 
 ### Ollama local
 - `qwen3:8b` — executor principal de tools no supervisor

@@ -60,13 +60,15 @@ Credenciais: fora do git, em `hyrule_env.py` (gerado por `setup.sh`)
 *Cada camada só é ativada se a anterior falhou. O Construct não desperdiça energia.*
 
 ```
-  ① OpenRouter  gpt-oss / free models  ──  tenta primeiro
+  ① Cerebras    llama3.1-8b             ──  fast/chat curto
          │  falhou (429 / erro)
-  ② Groq        llama / kimi           ──  0.3s de latência
+  ② Mistral     small latest            ──  quality/chat
          │  falhou
-  ③ Ollama      qwen2.5:7b             ──  LOCAL · zero custo · ~7s CPU
+  ③ OpenRouter  gpt-oss / free models   ──  fallback remoto
          │  falhou
-  ④ TRIFORCE / MAJORA / MASTERSWORD    ──  apenas quando escalado
+  ④ Ollama      qwen3:8b                ──  LOCAL · zero custo
+         │  falhou
+  ⑤ TRIFORCE / MAJORA / MASTERSWORD    ──  apenas quando escalado
 ```
 
 O **TRIFORCE** não mascara erro do Claude com outro LLM.
@@ -218,9 +220,12 @@ export DISCORD_TOKEN="..."
 export OPENROUTER_KEY_1="..."
 export OPENROUTER_KEY_2="..."
 export OPENROUTER_KEY_3="..."
-export GROQ_KEY_1="..."
-export GROQ_KEY_2="..."
-export GROQ_KEY_3="..."
+export CEREBRAS_KEY_1="..."
+export CEREBRAS_KEY_2="..."
+export CEREBRAS_KEY_3="..."
+export MISTRAL_KEY_1="..."
+export MISTRAL_KEY_2="..."
+export MISTRAL_KEY_3="..."
 export WA_OWNER="5537..."
 export WA_ALLOW_FROM="5537...,5537..."
 
@@ -325,7 +330,7 @@ Se um segredo aparecer no histórico do git: **revogue e gere outro imediatament
 | MAJORA duplicando               | Conferir `.majora_processing.lock` e `majora.log`           |
 | MASTERSWORD falha               | `opencode --version`, `opencode debug config`, `mastersword.log` |
 | Claude auto-update falha        | `claude doctor`, depois `npm i -g @anthropic-ai/claude-code` |
-| OpenRouter / Groq 429           | Normal — supervisor rotaciona chaves automaticamente         |
+| Provider cloud 429              | Normal — o sistema rotaciona chaves automaticamente          |
 
 ---
 

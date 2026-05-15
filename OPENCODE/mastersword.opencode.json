@@ -36,35 +36,6 @@
         }
       }
     },
-    "groq": {
-      "api": "https://api.groq.com/openai/v1",
-      "env": [
-        "GROQ_API_KEY"
-      ],
-      "models": {
-        "llama-3.3-70b-versatile": {
-          "name": "LLaMA 3.3 70B (melhor)"
-        },
-        "meta-llama/llama-4-scout-17b-16e-instruct": {
-          "name": "LLaMA 4 Scout 17B"
-        },
-        "qwen/qwen3-32b": {
-          "name": "Qwen3 32B"
-        },
-        "groq/compound": {
-          "name": "Groq Compound"
-        },
-        "groq/compound-mini": {
-          "name": "Groq Compound Mini"
-        },
-        "llama-3.1-8b-instant": {
-          "name": "LLaMA 3.1 8B"
-        },
-        "allam-2-7b": {
-          "name": "Allam 2 7B (leve)"
-        }
-      }
-    },
     "ollama": {
       "api": "http://localhost:11434/v1",
       "npm": "@ai-sdk/openai-compatible",
