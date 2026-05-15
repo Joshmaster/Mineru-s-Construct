@@ -21,60 +21,26 @@ if exist "%SECRETS%" (
 
 echo  Escolha o modelo:
 echo.
-echo  --- OPENROUTER (gratuito) ---
-echo   [10] GPT OSS 120B
-echo        Tools OK (bash, edit, read, glob, grep). Recomendado para codigo.
-echo   [11] Nemotron 120B
-echo        Tools OK. Modelo grande da NVIDIA, bom raciocinio.
-echo   [12] Gemma 4 31B
-echo        Tools OK. Multimodal, contexto longo.
-echo   [13] Gemma 3 12B
-echo        INDISPONIVEL para tools. Modelo trava ao iniciar no OpenCode.
-echo   [14] Gemma 3 4B
-echo        INDISPONIVEL para tools. Modelo trava ao iniciar no OpenCode.
-echo   [15] Gemma 3n E2B
-echo        INDISPONIVEL para tools. Modelo trava ao iniciar no OpenCode.
-echo   [16] Nemotron Nano 30B
-echo        Tools OK. Compacto da NVIDIA, bom custo-beneficio.
-echo   [17] GLM 4.5 Air
-echo        Tools OK. Modelo chines (Zhipu AI), bom em codigo.
-echo   [18] MiniMax M2.5
-echo        INDISPONIVEL para tools. Modelo nao encontrado no OpenRouter.
-echo   [19] Trinity Large Preview
-echo        Tools OK. Modelo Arcee focado em agentes e instrucoes.
-echo   [20] LFM 2.5 1.2B
-echo        INDISPONIVEL para tools. Modelo trava ao iniciar no OpenCode.
-echo   [21] Gemma 3 27B
-echo        INDISPONIVEL para tools. Modelo trava ao iniciar no OpenCode.
-echo.
-echo  --- OPENROUTER (pago) ---
-echo   [22] Gemini 2.5 Pro
-echo        Tools OK. Melhor modelo do Google. Contexto 1M tokens. Requer creditos pagos.
-echo.
-echo  --- OLLAMA ---
-echo   [23] Kimi K2.5 (cloud)
-echo        Abre via: ollama launch opencode. NAO TESTADO ainda.
-echo   [24] LLaMA 3.3
-echo        Abre via: ollama launch opencode. NAO TESTADO ainda.
+echo  --- OPENROUTER testados no MASTERSWORD ---
+echo   [1] GPT-5.1
+echo        Padrao de maior qualidade que funcionou com creditos atuais.
+echo   [2] Gemini 2.5 Pro
+echo        Fallback de qualidade, contexto longo.
+echo   [3] Qwen3 Coder
+echo        Fallback focado em codigo.
+echo   [4] GPT OSS 120B
+echo        Fallback gratuito.
+echo   [5] GPT OSS 20B
+echo        Fallback gratuito rapido.
 echo.
 
 set /p CHOICE=" Opcao: "
 
-if "%CHOICE%"=="10" set "MODEL=openrouter/openai/gpt-oss-120b:free"
-if "%CHOICE%"=="11" set "MODEL=openrouter/nvidia/nemotron-3-super-120b-a12b:free"
-if "%CHOICE%"=="12" set "MODEL=openrouter/google/gemma-4-31b-it:free"
-if "%CHOICE%"=="13" set "MODEL=openrouter/google/gemma-3-12b-it:free"
-if "%CHOICE%"=="14" set "MODEL=openrouter/google/gemma-3-4b-it:free"
-if "%CHOICE%"=="15" set "MODEL=openrouter/google/gemma-3n-e2b-it:free"
-if "%CHOICE%"=="16" set "MODEL=openrouter/nvidia/nemotron-3-nano-30b-a3b:free"
-if "%CHOICE%"=="17" set "MODEL=openrouter/z-ai/glm-4.5-air:free"
-if "%CHOICE%"=="18" set "MODEL=openrouter/minimax/minimax-m2.5:free"
-if "%CHOICE%"=="19" set "MODEL=openrouter/arcee-ai/trinity-large-preview:free"
-if "%CHOICE%"=="20" set "MODEL=openrouter/liquid/lfm-2.5-1.2b-instruct:free"
-if "%CHOICE%"=="21" set "MODEL=openrouter/google/gemma-3-27b-it:free"
-if "%CHOICE%"=="22" set "MODEL=openrouter/google/gemini-2.5-pro-preview-06-05"
-if "%CHOICE%"=="23" set "MODEL=ollama/kimi-k2.5:cloud"
-if "%CHOICE%"=="24" set "MODEL=ollama/llama3.3"
+if "%CHOICE%"=="1" set "MODEL=openrouter/openai/gpt-5.1"
+if "%CHOICE%"=="2" set "MODEL=openrouter/google/gemini-2.5-pro"
+if "%CHOICE%"=="3" set "MODEL=openrouter/qwen/qwen3-coder"
+if "%CHOICE%"=="4" set "MODEL=openrouter/openai/gpt-oss-120b:free"
+if "%CHOICE%"=="5" set "MODEL=openrouter/openai/gpt-oss-20b:free"
 
 if "%MODEL%"=="" (
     echo.
@@ -86,14 +52,13 @@ if "%MODEL%"=="" (
 echo.
 echo  Modelo selecionado: %MODEL%
 
-REM Rotacao de chaves OpenRouter (opcoes 10-22)
-if not "%CHOICE%"=="23" if not "%CHOICE%"=="24" (
-    set /a "OR_IDX=!RANDOM! %% 3"
-    if "!OR_IDX!"=="0" set "OPENROUTER_API_KEY=!OPENROUTER_API_KEY!"
-    if "!OR_IDX!"=="1" set "OPENROUTER_API_KEY=!OPENROUTER_API_KEY_2!"
-    if "!OR_IDX!"=="2" set "OPENROUTER_API_KEY=!OPENROUTER_API_KEY_3!"
-    echo  Chave OpenRouter: #!OR_IDX!
-)
+set /a "OR_IDX=!RANDOM! %% 3"
+if "!OR_IDX!"=="0" set "OPENROUTER_API_KEY=!OPENROUTER_API_KEY!"
+if "!OR_IDX!"=="1" set "OPENROUTER_API_KEY=!OPENROUTER_API_KEY_2!"
+if "!OR_IDX!"=="2" set "OPENROUTER_API_KEY=!OPENROUTER_API_KEY_3!"
+echo  Chave OpenRouter: #!OR_IDX!
+
+if "%OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX%"=="" set "OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX=2048"
 
 REM Atualiza o model no opencode.json
 set "CONFIG=%APPDATA%\opencode\opencode.json"

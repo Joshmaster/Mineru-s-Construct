@@ -26,9 +26,19 @@ STALE_LOCK_SECS = 15 * 60
 TIMEOUT_SECS = 240
 
 DEFAULT_MODELS = [
+    "openrouter/openai/gpt-5.1",
+    "openrouter/google/gemini-2.5-pro",
+    "openrouter/qwen/qwen3-coder",
+    "openrouter/openai/gpt-oss-120b:free",
     "openrouter/openai/gpt-oss-20b:free",
-    "openrouter/google/gemma-4-31b-it:free",
 ]
+OPENCODE_MODELS = {
+    "openai/gpt-5.1": {"name": "GPT-5.1 (qualidade padrao)"},
+    "google/gemini-2.5-pro": {"name": "Gemini 2.5 Pro (fallback qualidade)"},
+    "qwen/qwen3-coder": {"name": "Qwen3 Coder (fallback codigo)"},
+    "openai/gpt-oss-120b:free": {"name": "GPT OSS 120B (fallback gratuito)"},
+    "openai/gpt-oss-20b:free": {"name": "GPT OSS 20B (fallback gratuito rapido)"},
+}
 ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[A-Za-z]")
 
 if sys.platform == "win32":
@@ -113,6 +123,7 @@ def _env_opencode() -> dict:
         OPENROUTER_KEYS = []
     if OPENROUTER_KEYS:
         env.setdefault("OPENROUTER_API_KEY", OPENROUTER_KEYS[0])
+    env.setdefault("OPENCODE_EXPERIMENTAL_OUTPUT_TOKEN_MAX", os.environ.get("MASTERSWORD_OUTPUT_TOKEN_MAX", "2048"))
     return env
 
 
@@ -134,21 +145,18 @@ def _ensure_config():
         shutil.copyfile(CONFIG_TEMPLATE, CONFIG_FILE)
         return
 
-    instructions = config.get("instructions", [])
-    if isinstance(instructions, str):
-        instructions = [instructions]
-    if not isinstance(instructions, list):
-        instructions = []
-
-    changed = False
-    for item in reversed(required):
-        if item not in instructions:
-            instructions.insert(0, item)
-            changed = True
-
-    if changed:
-        config["instructions"] = instructions
-        CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+    instructions = required
+    config["provider"] = {
+        "openrouter": {
+            "api": "https://openrouter.ai/api/v1",
+            "env": ["OPENROUTER_API_KEY"],
+            "models": OPENCODE_MODELS,
+        }
+    }
+    config["model"] = DEFAULT_MODELS[0]
+    config["small_model"] = DEFAULT_MODELS[3]
+    config["instructions"] = instructions
+    CONFIG_FILE.write_text(json.dumps(config, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
 
 
 def _modelos() -> list[str]:

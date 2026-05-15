@@ -49,6 +49,7 @@ pedidos_vistos.json
 nav_state.json
 token_usage.json
 token_usage.log
+.task_memory/
 .triforce_daemon_pid
 .majora_pid
 .majora_processing.lock
