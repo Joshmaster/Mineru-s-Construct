@@ -605,6 +605,8 @@ async def _send_audio_track(ctx: MessageContext, path: str, caption: str = ""):
     """Envia música como áudio normal, preservando o MP3 quando possível."""
     if ctx.client is not None and hasattr(ctx.client, "send_audio"):
         resp = await ctx.client.send_audio(ctx.chat_jid, path, ptt=False)
+        if hasattr(ctx, "remember_sent_message"):
+            ctx.remember_sent_message(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
         if hasattr(ctx, "remember_sent_music"):
             ctx.remember_sent_music(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""), caption)
         if caption:
@@ -614,6 +616,8 @@ async def _send_audio_track(ctx: MessageContext, path: str, caption: str = ""):
                 quoted_id=ctx.message_id or "",
                 quoted_sender=ctx._sender_str() if ctx.is_group else "",
             )
+            if hasattr(ctx, "remember_sent_message"):
+                ctx.remember_sent_message(getattr(text_resp, "ID", "") or getattr(text_resp, "ServerID", ""))
             if hasattr(ctx, "remember_sent_music"):
                 ctx.remember_sent_music(getattr(text_resp, "ID", "") or getattr(text_resp, "ServerID", ""), caption)
         return

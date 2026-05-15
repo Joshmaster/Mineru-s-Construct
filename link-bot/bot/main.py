@@ -17,6 +17,7 @@ import importlib
 import json
 import logging
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -73,6 +74,7 @@ INBOX_DIR = Path.home() / ".linkbot" / "inbox"
 GENERATED_MEDIA_DIRS = [
     ROOT / ".linkbot" / "reminder_cards",
 ]
+SENT_MESSAGES_FILE = ROOT / ".linkbot" / "sent_messages.json"
 
 
 def _norm_text(text: str) -> str:
@@ -124,6 +126,53 @@ def _looks_like_contextual_music_request(text: str) -> bool:
         "uma parecida", "outra do mesmo", "do mesmo", "da mesma",
         "manda mais", "coloca outra", "bota outra",
     ))
+
+
+def _looks_like_delete_bot_messages(text: str) -> bool:
+    norm = _norm_text(text)
+    if not any(w in norm for w in ("apag", "delet", "exclu", "limpa", "limpar", "remove", "remov")):
+        return False
+    if any(w in norm for w in ("lembrete", "tarefa", "missao", "nota", "anotacao", "anotacoes")):
+        return False
+    return any(w in norm for w in (
+        "mensag", "msg", "msgs", "chat", "conversa", "historico",
+        "suas", "seus", "voce mandou", "tu mandou", "do bot", "tudo",
+    ))
+
+
+def _delete_count_from_text(text: str) -> int:
+    norm = _norm_text(text)
+    m = re.search(r"\b(\d{1,3})\b", norm)
+    if m:
+        return max(1, min(int(m.group(1)), 50))
+    if any(w in norm for w in ("ultima", "ultimo", "essa", "esta", "isso")):
+        return 1
+    if any(w in norm for w in ("tudo", "todas", "todos", "historico", "chat", "conversa")):
+        return 50
+    return 20
+
+
+def _load_sent_messages() -> dict[str, list[dict]]:
+    try:
+        if SENT_MESSAGES_FILE.exists():
+            data = json.loads(SENT_MESSAGES_FILE.read_text(encoding="utf-8"))
+            if isinstance(data, dict):
+                return {
+                    str(chat): [item for item in items if isinstance(item, dict)]
+                    for chat, items in data.items()
+                    if isinstance(items, list)
+                }
+    except Exception:
+        pass
+    return {}
+
+
+def _save_sent_messages(data: dict[str, list[dict]]):
+    try:
+        SENT_MESSAGES_FILE.parent.mkdir(parents=True, exist_ok=True)
+        SENT_MESSAGES_FILE.write_text(json.dumps(data, ensure_ascii=False), encoding="utf-8")
+    except Exception as e:
+        log.debug(f"não consegui salvar sent_messages: {e}")
 
 
 def _cleanup_old_media() -> int:
@@ -234,6 +283,7 @@ class LinkBot:
         self.last_media: dict = {}
         self.sent_music_context: dict[str, dict] = {}
         self.last_music_by_chat: dict[str, dict] = {}  # chat_jid_str → {context, ts}
+        self.sent_messages_by_chat: dict[str, list[dict]] = _load_sent_messages()  # chat_jid_str → [{id, ts}]
 
         # Bot identity
         self.my_jid = None
@@ -522,6 +572,57 @@ class LinkBot:
         for mid, item in list(self.sent_music_context.items()):
             if float(item.get("ts") or 0) < cutoff:
                 self.sent_music_context.pop(mid, None)
+
+    def _remember_sent_message(self, chat_jid_str: str, message_id: str):
+        message_id = str(message_id or "").strip()
+        chat_jid_str = str(chat_jid_str or "").strip()
+        if not message_id or not chat_jid_str:
+            return
+        items = self.sent_messages_by_chat.setdefault(chat_jid_str, [])
+        if any(item.get("id") == message_id for item in items):
+            return
+        items.append({"id": message_id, "ts": time.time()})
+        cutoff = time.time() - 24 * 60 * 60
+        self.sent_messages_by_chat[chat_jid_str] = [
+            item for item in items[-120:]
+            if float(item.get("ts") or 0) >= cutoff
+        ]
+        _save_sent_messages(self.sent_messages_by_chat)
+
+    async def _handle_delete_bot_messages(self, chat_jid, chat_jid_str: str, text: str, quoted_id: str = "") -> bool:
+        count = _delete_count_from_text(text)
+        targets: list[str] = []
+        norm = _norm_text(text)
+        if quoted_id and any(w in norm for w in ("essa", "esta", "isso", "mensagem marcada", "marcada", "respondida")):
+            targets.append(str(quoted_id))
+        items = self.sent_messages_by_chat.get(str(chat_jid_str), [])
+        for item in reversed(items):
+            mid = str(item.get("id") or "")
+            if mid and mid not in targets:
+                targets.append(mid)
+            if len(targets) >= count:
+                break
+
+        if not targets:
+            resp = await self.client.send_message(chat_jid, "não tenho mensagem recente minha pra apagar aqui")
+            self._remember_sent_message(chat_jid_str, getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
+            return True
+
+        deleted = 0
+        for mid in targets:
+            if await self.client.delete_message(chat_jid, mid):
+                deleted += 1
+        if deleted:
+            known = self.sent_messages_by_chat.get(str(chat_jid_str), [])
+            removed = set(targets)
+            self.sent_messages_by_chat[str(chat_jid_str)] = [
+                item for item in known if item.get("id") not in removed
+            ]
+            _save_sent_messages(self.sent_messages_by_chat)
+        msg = f"apaguei {deleted} mensagem(ns) minha(s)" if deleted else "não consegui apagar minhas mensagens agora"
+        resp = await self.client.send_message(chat_jid, msg)
+        self._remember_sent_message(chat_jid_str, getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
+        return True
 
     def _quoted_music_context(self, quoted_id: str, quoted_text: str = "", chat_jid_str: str = "") -> str:
         if quoted_id:
@@ -995,8 +1096,13 @@ class LinkBot:
             nome = access_ctl.display_name(sender_number, chat_number, sender_jid_str, chat_jid_str, pushname=pushname)
             papel = "meu parceiro e dono desse sistema" if self._is_admin(sender_number, chat_number, sender_jid_str, chat_jid_str) else "usuário autorizado"
             reply = f"você é {nome}, {papel}"
-            await self.client.send_message(chat_jid, reply)
+            resp = await self.client.send_message(chat_jid, reply)
+            self._remember_sent_message(chat_jid_str, getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
             log.info(f"📤 [id={sender_number} phone/chat={chat_number}] {reply}")
+            return
+
+        if _looks_like_delete_bot_messages(text):
+            await self._handle_delete_bot_messages(chat_jid, chat_jid_str, text, quoted_id)
             return
 
         # quoted_music_context: já calculado no bloco de grupo acima; recalcula aqui apenas em DM
@@ -1024,7 +1130,8 @@ class LinkBot:
                         None, _llm.gerar_pergunta_skill, _sk, _orig, ""
                     )
                     if _resp:
-                        await self.client.send_message(chat_jid, _resp)
+                        resp = await self.client.send_message(chat_jid, _resp)
+                        self._remember_sent_message(chat_jid_str, getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
                     self._pending_clarification[sender_number] = (_sk, _orig, time.time(), _retries + 1)
                     return
                 if _action == "use" and _args_pend:
@@ -1085,7 +1192,8 @@ class LinkBot:
                         None, _llm.gerar_pergunta_skill, _sk_name, text, ""
                     )
                     if _pergunta:
-                        await self.client.send_message(chat_jid, _pergunta)
+                        resp = await self.client.send_message(chat_jid, _pergunta)
+                        self._remember_sent_message(chat_jid_str, getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
                         self._pending_clarification[sender_number] = (_sk_name, text, time.time(), 0)
                         return
                     match = ai_match  # pergunta falhou → executa com o que tem
@@ -1114,11 +1222,13 @@ class LinkBot:
                 reply = await asyncio.get_event_loop().run_in_executor(
                     None, _llm.chat, sender_number, text, nome_usuario
                 )
-                await self.client.send_message(chat_jid, reply, quoted_id=message_id, quoted_sender=sender_jid_str if is_group else "")
+                resp = await self.client.send_message(chat_jid, reply, quoted_id=message_id, quoted_sender=sender_jid_str if is_group else "")
+                self._remember_sent_message(chat_jid_str, getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
                 log.info(f"📤 [id={sender_number} phone/chat={chat_number}] {reply[:120]}")
             except Exception as e:
                 log.error(f"LLM fallback falhou: {e}")
-                await self.client.send_message(chat_jid, "🌀")
+                resp = await self.client.send_message(chat_jid, "🌀")
+                self._remember_sent_message(chat_jid_str, getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
             return
 
         skill, rest = match
@@ -1157,6 +1267,7 @@ class LinkBot:
             config=self.config,
             router=self.router,
             sent_music_callback=lambda mid, ctx, _cj=chat_jid_str: self._remember_sent_music(mid, ctx, _cj),
+            sent_message_callback=lambda mid, _cj=chat_jid_str: self._remember_sent_message(_cj, mid),
         )
 
         nome_usuario = access_ctl.display_name(sender_number, chat_number, sender_jid_str, chat_jid_str, pushname=pushname)
@@ -1179,10 +1290,11 @@ class LinkBot:
         except Exception as e:
             log.error(f"Erro na skill {skill.name}: {e}", exc_info=True)
             try:
-                await self.client.send_message(
+                resp = await self.client.send_message(
                     chat_jid,
                     f"⚡ Esse construct quebrou, parceiro: {e}"
                 )
+                self._remember_sent_message(chat_jid_str, getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
             except Exception:
                 pass
 

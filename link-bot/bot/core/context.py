@@ -45,6 +45,7 @@ class MessageContext:
     config: Any = None              # dict de config
     router: Any = None              # pra skill /ajuda listar comandos
     sent_music_callback: Any = None # callback opcional para registrar contexto musical enviado
+    sent_message_callback: Any = None # callback opcional para registrar mensagens enviadas pelo bot
 
     def _sender_str(self) -> str:
         jid = self.sender_jid
@@ -63,6 +64,7 @@ class MessageContext:
                 quoted_id=self.message_id or "",
                 quoted_sender=self._sender_str() if self.is_group else "",
             )
+            self.remember_sent_message(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
             return resp
         except Exception as e:
             print(f"[reply err] {e}")
@@ -106,7 +108,7 @@ class MessageContext:
             print(f"[send_image mock] {file_path}")
             return
         try:
-            await asyncio.wait_for(
+            resp = await asyncio.wait_for(
                 self.client.send_image(
                     self.chat_jid, file_path,
                     caption=caption or None,
@@ -115,6 +117,7 @@ class MessageContext:
                 ),
                 timeout=12,
             )
+            self.remember_sent_message(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
         except asyncio.TimeoutError:
             print(f"[send_image timeout] {file_path}")
             if caption:
@@ -135,11 +138,12 @@ class MessageContext:
         if self.client is None:
             return
         try:
-            await self.client.send_audio(
+            resp = await self.client.send_audio(
                 self.chat_jid, file_path, ptt=True,
                 quoted_id=self.message_id or "",
                 quoted_sender=self._sender_str() if self.is_group else "",
             )
+            self.remember_sent_message(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
         except Exception as e:
             print(f"[send_audio_ptt err] {e}")
 
@@ -148,6 +152,14 @@ class MessageContext:
             return
         try:
             self.sent_music_callback(str(message_id), str(context))
+        except Exception:
+            pass
+
+    def remember_sent_message(self, message_id: str):
+        if not message_id or not self.sent_message_callback:
+            return
+        try:
+            self.sent_message_callback(str(message_id))
         except Exception:
             pass
 
@@ -163,16 +175,21 @@ class MessageContext:
             ext = file_path.rsplit(".", 1)[-1].lower() if "." in file_path else ""
             if as_sticker:
                 if hasattr(self.client, "send_sticker"):
-                    await self.client.send_sticker(self.chat_jid, file_path, quoted_id=qid, quoted_sender=qsender)
+                    resp = await self.client.send_sticker(self.chat_jid, file_path, quoted_id=qid, quoted_sender=qsender)
+                    self.remember_sent_message(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
                 else:
-                    await self.client.send_message(self.chat_jid, file_path, quoted_id=qid, quoted_sender=qsender)
+                    resp = await self.client.send_message(self.chat_jid, file_path, quoted_id=qid, quoted_sender=qsender)
+                    self.remember_sent_message(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
                 if caption:
-                    await self.client.send_message(self.chat_jid, caption)
+                    resp = await self.client.send_message(self.chat_jid, caption)
+                    self.remember_sent_message(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
             elif ext in ("mp3", "ogg", "m4a", "wav", "aac", "opus"):
                 resp = await self.client.send_audio(self.chat_jid, file_path, ptt=False, quoted_id=qid, quoted_sender=qsender)
+                self.remember_sent_message(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
                 self.remember_sent_music(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""), caption)
                 if caption:
                     text_resp = await self.client.send_message(self.chat_jid, caption)
+                    self.remember_sent_message(getattr(text_resp, "ID", "") or getattr(text_resp, "ServerID", ""))
                     self.remember_sent_music(getattr(text_resp, "ID", "") or getattr(text_resp, "ServerID", ""), caption)
             else:
                 await self.send_image(file_path, caption)

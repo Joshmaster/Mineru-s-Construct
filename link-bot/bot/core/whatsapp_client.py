@@ -134,6 +134,7 @@ class WhatsAppClient:
             payload["quoted_sender"] = quoted_sender
         resp = await http.post("/send/sticker", json=payload)
         resp.raise_for_status()
+        return _MsgResp(resp.json().get("id", ""))
 
     async def edit_message(self, jid, msg_id: str, new_text: str) -> bool:
         if not msg_id:
