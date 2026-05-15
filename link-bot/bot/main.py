@@ -136,7 +136,9 @@ def _looks_like_delete_bot_messages(text: str) -> bool:
         return False
     return any(w in norm for w in (
         "mensag", "msg", "msgs", "chat", "conversa", "historico",
+        "audio", "audios", "midia", "midias", "arquivo", "arquivos",
         "suas", "seus", "voce mandou", "tu mandou", "do bot", "tudo",
+        "hoje",
     ))
 
 
@@ -147,7 +149,7 @@ def _delete_count_from_text(text: str) -> int:
         return max(1, min(int(m.group(1)), 50))
     if any(w in norm for w in ("ultima", "ultimo", "essa", "esta", "isso")):
         return 1
-    if any(w in norm for w in ("tudo", "todas", "todos", "historico", "chat", "conversa")):
+    if any(w in norm for w in ("tudo", "todas", "todos", "historico", "chat", "conversa", "hoje")):
         return 50
     return 20
 
@@ -593,6 +595,10 @@ class LinkBot:
         count = _delete_count_from_text(text)
         targets: list[str] = []
         norm = _norm_text(text)
+        silent_cleanup = any(w in norm for w in (
+            "tudo", "todas", "todos", "historico", "chat", "conversa",
+            "hoje", "limpa", "limpar",
+        ))
         if quoted_id and any(w in norm for w in ("essa", "esta", "isso", "mensagem marcada", "marcada", "respondida")):
             targets.append(str(quoted_id))
         items = self.sent_messages_by_chat.get(str(chat_jid_str), [])
@@ -604,6 +610,8 @@ class LinkBot:
                 break
 
         if not targets:
+            if silent_cleanup:
+                return True
             resp = await self.client.send_message(chat_jid, "não tenho mensagem recente minha pra apagar aqui")
             self._remember_sent_message(chat_jid_str, getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
             return True
@@ -619,6 +627,8 @@ class LinkBot:
                 item for item in known if item.get("id") not in removed
             ]
             _save_sent_messages(self.sent_messages_by_chat)
+        if silent_cleanup:
+            return True
         msg = f"apaguei {deleted} mensagem(ns) minha(s)" if deleted else "não consegui apagar minhas mensagens agora"
         resp = await self.client.send_message(chat_jid, msg)
         self._remember_sent_message(chat_jid_str, getattr(resp, "ID", "") or getattr(resp, "ServerID", ""))
