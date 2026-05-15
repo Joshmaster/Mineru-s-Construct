@@ -26,24 +26,25 @@ originSessionId: ac218d08-6f60-4d2f-b426-1188d53f3b27
 **Why:** TRIFORCE agora é acionado tanto do Discord quanto do WhatsApp. Responder no canal errado (ex: Discord quando veio do WPP) não entrega a mensagem pro OWNER.
 **How to apply:** Sempre checar o campo `canal` no item da fila antes de responder. Default é discord.
 
-## Gatilho "link link", "claude link" ou "codex link"
-1. Ler `session_handoff.md` — ver o que ficou pendente
+## Gatilho "link link", "claude link", "codex link", "opencode link" ou "mastersword link"
+1. Ler `session_handoff.md` — recado da camada/agente anterior para a camada/agente atual
 2. Confirmar todos os serviços ativos (bot, proxy, supervisor, watcher)
 3. Mostrar últimas conversas do Discord
 4. Resumir o que estava em andamento e o que ficou pendente
 5. Perguntar como continuar
 
-**Why:** A sessão pode ter encerrado antes de concluir uma tarefa. O handoff garante continuidade sem precisar repetir contexto.
-**How to apply:** Ler memory + session_handoff.md, checar logs, confirmar status e apresentar resumo conciso.
+**Why:** TRIFORCE/Claude, MAJORA/Codex e MASTERSWORD/OpenCode se alternam. O `session_handoff.md` e a ponte entre eles: quem sai escreve para quem entrar continuar sem perguntar tudo de novo.
+**How to apply:** Ler memory + session_handoff.md, checar logs, confirmar status e apresentar resumo conciso do recado anterior.
 
 ## Ao encerrar sessão (quando OWNER disser "vou testar", "até mais", "vou fechar", etc.)
 Antes de encerrar, escrever `session_handoff.md` com:
 1. O que foi alterado (quais scripts, qual mudança principal)
 2. O que ficou pendente ou com problema
 3. Estado dos serviços no momento
-4. Qualquer detalhe que a próxima sessão precisa saber
+4. Próximo passo recomendado para a próxima camada/agente
+5. Qualquer detalhe que a próxima camada/agente precisa saber
 
 Também atualizar `project_hyrule.md` se houve mudança de arquitetura.
 
-**Why:** O `session_handoff.md` preserva o contexto entre sessões. Sem ele, o trabalho em andamento se perde.
+**Why:** O `session_handoff.md` preserva o contexto entre agentes e sessões. Sem ele, o trabalho em andamento se perde quando OWNER alterna Claude/Codex/OpenCode.
 **How to apply:** Ao detectar sinal de encerramento, rodar Write em `session_handoff.md` antes de responder. Sobrescrever o conteúdo anterior — esse arquivo é estado atual, não histórico.

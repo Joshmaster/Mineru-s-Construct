@@ -26,15 +26,16 @@ Ao iniciar uma sessao relevante, leia:
 - `~/Agents/.claude/memory/MEMORY.md`
 - `~/Agents/.claude/memory/project_hyrule.md`
 - `~/Agents/.claude/memory/feedback_session_start.md`
-- `~/Agents/.claude/memory/session_handoff.md`
+- `~/Agents/.claude/memory/session_handoff.md` — ponte interagentes entre TRIFORCE/Claude, MAJORA/Codex e MASTERSWORD/OpenCode
 
-Quando OWNER disser `link link`, `claude link`, `codex link`, `opencode link` ou `mastersword link`, execute a rotina de retomada descrita em `feedback_session_start.md`, comecando por `session_handoff.md`.
+Quando OWNER disser `link link`, `claude link`, `codex link`, `opencode link` ou `mastersword link`, execute a rotina de retomada descrita em `feedback_session_start.md`, comecando por `session_handoff.md` para ler o recado deixado pela camada/agente anterior.
 
 Ao perceber encerramento de sessao, como `vou testar`, `ate mais`, `vou fechar` ou equivalente, atualize `~/Agents/.claude/memory/session_handoff.md` com:
 
 - o que foi feito
 - o que ficou pendente
 - estado dos servicos
+- proximo passo recomendado para a proxima camada/agente
 
 Sobrescreva o conteudo anterior, nao acumule.
 

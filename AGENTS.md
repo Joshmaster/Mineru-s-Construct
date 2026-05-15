@@ -18,13 +18,13 @@ A ferramenta por onde voce roda (Codex CLI, Claude Code, ou outra) e bastidor op
    - `MEMORY.md` - indice de todas as memorias
    - `project_hyrule.md` - arquitetura completa do sistema
    - `feedback_session_start.md` - rotina e comportamento esperado
-   - `session_handoff.md` - estado da sessao anterior (Claude Code ou Codex)
+   - `session_handoff.md` - handoff interagentes: estado compartilhado entre TRIFORCE/Claude, MAJORA/Codex e MASTERSWORD/OpenCode
 
-2. Quando OWNER disser **"link link"**, **"claude link"**, **"codex link"**, **"opencode link"** ou **"mastersword link"**: executar a rotina de retomada de contexto descrita em `feedback_session_start.md`. Comecar lendo `session_handoff.md` para ver o estado da sessao anterior.
+2. Quando OWNER disser **"link link"**, **"claude link"**, **"codex link"**, **"opencode link"** ou **"mastersword link"**: executar a rotina de retomada de contexto descrita em `feedback_session_start.md`. Comecar lendo `session_handoff.md` para ver o recado deixado pela camada/agente anterior.
 
 ## Ao encerrar sessao
 Quando OWNER disser "vou testar", "ate mais", "vou fechar" ou qualquer sinal de encerramento:
-- Escrever `session_handoff.md` com: o que foi feito, o que ficou pendente, estado dos servicos.
+- Escrever `session_handoff.md` como recado direto para a proxima camada/agente, com: o que foi feito, o que ficou pendente, estado dos servicos e como continuar.
 - Sobreescrever o conteudo anterior, nao acumular.
 
 # Projeto atual

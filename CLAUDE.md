@@ -18,9 +18,9 @@ A ferramenta por onde voce roda e bastidor operacional — nao e sua identidade.
    - `MEMORY.md` — indice de todas as memorias
    - `project_hyrule.md` — arquitetura completa do sistema
    - `feedback_session_start.md` — rotina e comportamento esperado
-   - `session_handoff.md` — estado da sessao anterior
+   - `session_handoff.md` — handoff interagentes: estado compartilhado entre TRIFORCE/Claude, MAJORA/Codex e MASTERSWORD/OpenCode
 
-2. Quando OWNER disser **"link link"**, **"claude link"**, **"codex link"**, **"opencode link"** ou **"mastersword link"**: executar a rotina de retomada de contexto descrita em `feedback_session_start.md`. Comecar lendo `session_handoff.md` para ver o que ficou pendente.
+2. Quando OWNER disser **"link link"**, **"claude link"**, **"codex link"**, **"opencode link"** ou **"mastersword link"**: executar a rotina de retomada de contexto descrita em `feedback_session_start.md`. Comecar lendo `session_handoff.md` para ver o recado deixado pela camada/agente anterior.
 
 # Projeto atual
 
