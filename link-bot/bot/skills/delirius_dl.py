@@ -135,6 +135,48 @@ def _spotify_clean_query(query: str) -> str:
     return re.sub(r"\s+", " ", query).strip()
 
 
+def _is_contextual_music_query(query: str) -> bool:
+    low = (query or "").casefold()
+    return "contexto musical anterior:" in low and any(x in low for x in (
+        "outra famosa", "outro famoso", "mais famosa", "mais famoso",
+        "outra musica", "outra música", "mais uma", "mesma banda",
+        "desse artista", "dessa banda", "mais outra", "outra dela",
+        "outra dele", "do mesmo artista", "do mesmo estilo",
+    ))
+
+
+def _artist_from_music_context(text: str) -> str:
+    m = re.search(r"🎵\s*.+?\s+[—-]\s*([^\n]+)", text or "")
+    if m:
+        return re.sub(r"\s+", " ", m.group(1)).strip()
+    return ""
+
+
+def _youtube_clean_query(query: str) -> str:
+    """Remove palavras de comando antes da busca no YouTube."""
+    query = re.sub(r"^\s*(?:link|ei\s+link|ô\s+link|o\s+link)[,:\s-]*", "", query.strip(), flags=re.IGNORECASE)
+    query = re.sub(r"!\w+", " ", query)
+    query = re.sub(
+        r"^(?:(?:link|youtube|yutube|youtu|yt|ytmp3|ytmp4|video|vídeo|musica|música|baixar|baixa|toca|tocar|manda|mp3|mp4)\s+)+",
+        "",
+        query,
+        flags=re.IGNORECASE,
+    )
+    query = re.sub(r"\b(?:via|no|na|pelo|pela|do|da)\s+(?:youtube|yutube|youtu|yt)\b", " ", query, flags=re.IGNORECASE)
+    query = re.sub(r"\b(?:youtube|yutube|youtu|yt)\b", " ", query, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", query).strip()
+
+
+def _is_youtube_intent(raw_text: str, norm_text: str) -> bool:
+    raw = (raw_text or "").strip().lower()
+    youtube_commands = ("!yt", "!ytmp3", "!ytv", "!ytmp4")
+    return (
+        raw in youtube_commands
+        or raw.startswith(tuple(f"{cmd}{sep}" for cmd in youtube_commands for sep in (" ", ":")))
+        or any(w in norm_text for w in ("youtube", "yutube", "youtu", "ytmp", " yt "))
+    )
+
+
 def _spotify_item_text(item: dict) -> str:
     if not isinstance(item, dict):
         return ""
@@ -203,15 +245,25 @@ def _spotify_search(query: str, *, prefer_original: bool = True) -> dict | None:
     return candidates[0]
 
 
-def _spotify_search_candidates(query: str) -> list[str]:
-    """Gera consultas candidatas para achar melhor a musica que o usuario quis."""
+def _spotify_search_candidates(query: str, *, context: str = "") -> list[str]:
+    """Gera consultas candidatas para achar melhor a musica que o usuario quis.
+
+    context: texto original do usuario (antes do strip pelo classify) — dá mais
+    informação ao LLM de query rewriting (ex: sabe que 'zelda' é jogo, não artista).
+    """
     clean = _spotify_clean_query(query)
+    contextual = _is_contextual_music_query(query) or _is_contextual_music_query(context)
+    artist = _artist_from_music_context(query) or _artist_from_music_context(context)
+    # Usa o contexto original quando disponível; cai no query limpo caso contrário
+    llm_input = context.strip() if context and context.strip() != query else query
     candidates: list[str] = []
     try:
-        candidates.extend(_llm.spotify_search_queries(query))
+        candidates.extend(_llm.spotify_search_queries(llm_input))
     except Exception as e:
         log.debug(f"LLM spotify_search_queries falhou: {e}")
-    if clean:
+    if contextual and artist:
+        candidates.extend([f"{artist} popular songs", f"{artist} greatest hits"])
+    elif clean and clean.casefold() not in {c.casefold() for c in candidates}:
         candidates.append(clean)
 
     seen: set[str] = set()
@@ -237,6 +289,22 @@ async def _spotify_youtube_fallback(ctx: MessageContext, query: str, *, prefer_o
     title = (result or {}).get("title") or query
     log.info(f"Spotify fallback YouTube '{query}' => {title} ({url})")
     await _yt(ctx, url, "mp3", caption_extra=f"YouTube: {url}")
+    return True
+
+
+async def _youtube_query(ctx: MessageContext, query: str, modo: str = "mp3", *, prefer_original: bool = True) -> bool:
+    """Busca no YouTube por texto e baixa o primeiro resultado adequado."""
+    clean = _youtube_clean_query(query)
+    if not clean:
+        return False
+    result = _youtube_search(clean, prefer_original=prefer_original)
+    url = (result or {}).get("url")
+    if not url:
+        await ctx.reply("não achei isso no YouTube")
+        return True
+    title = (result or {}).get("title") or clean
+    log.info(f"YouTube busca '{query}' -> {title} ({url})")
+    await _yt(ctx, url, modo, caption_extra=f"YouTube: {url}")
     return True
 
 
@@ -298,9 +366,18 @@ async def _to_whatsapp_ogg(path: str) -> str | None:
 async def _send_audio_track(ctx: MessageContext, path: str, caption: str = ""):
     """Envia música como áudio normal, preservando o MP3 quando possível."""
     if ctx.client is not None and hasattr(ctx.client, "send_audio"):
-        await ctx.client.send_audio(ctx.chat_jid, path, ptt=False)
+        resp = await ctx.client.send_audio(ctx.chat_jid, path, ptt=False)
+        if hasattr(ctx, "remember_sent_music"):
+            ctx.remember_sent_music(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""), caption)
         if caption:
-            await ctx.reply(caption)
+            text_resp = await ctx.client.send_message(
+                ctx.chat_jid,
+                caption,
+                quoted_id=ctx.message_id or "",
+                quoted_sender=ctx._sender_str() if ctx.is_group else "",
+            )
+            if hasattr(ctx, "remember_sent_music"):
+                ctx.remember_sent_music(getattr(text_resp, "ID", "") or getattr(text_resp, "ServerID", ""), caption)
         return
     await ctx.reply_media(path, caption=caption)
 
@@ -388,10 +465,14 @@ async def _spotify(ctx: MessageContext, url: str, *, fallback_query: str = "", p
         _rm(path)
 
 
-async def _spotify_query(ctx: MessageContext, query: str):
-    """Busca a faixa pelo texto, refinando a consulta com LLM quando possivel."""
+async def _spotify_query(ctx: MessageContext, query: str, *, context: str = ""):
+    """Busca a faixa pelo texto, refinando a consulta com LLM quando possivel.
+
+    context: mensagem original do usuário — passada ao LLM de query rewriting
+    para gerar buscas mais precisas sem depender só dos args stripados.
+    """
     prefer_original = not _allows_alternate_version(query)
-    candidates = _spotify_search_candidates(query)
+    candidates = _spotify_search_candidates(query, context=context)
     result = None
     used_query = ""
     for candidate in candidates:
@@ -502,9 +583,14 @@ async def handle(ctx: MessageContext):
 
     if not url:
         args = ctx.args_text.strip()
-        # YouTube precisa de link — detecta intenção e pede URL
-        if any(w in norm for w in ("youtube", "youtu", " yt ", "ytmp")):
-            await ctx.reply("manda o link do YouTube junto 🔗")
+        youtube_intent = _is_youtube_intent(ctx.raw_text, norm)
+        youtube_video = any(w in norm for w in ("vídeo", "video", "mp4", "assisti", "ytv", "ytmp4"))
+        if youtube_intent:
+            if args:
+                await ctx.typing()
+                await _youtube_query(ctx, args, "mp4" if youtube_video else "mp3")
+                return
+            await ctx.reply("qual música ou vídeo do YouTube?")
             return
         # Instagram precisa de link
         if any(w in norm for w in ("instagram", " ig ", "insta", "reels", "reel")):
@@ -517,19 +603,19 @@ async def handle(ctx: MessageContext):
         # Spotify aceita busca por texto — qualquer menção a música/spot vai pra cá
         if args and any(w in norm for w in ("spot", "spotify", "música", "musica", "song", "faixa", "track", "toca", "tocar", "ouvi", "play", "baixa", "baixar", "manda")):
             await ctx.typing()
-            await _spotify_query(ctx, args)
+            await _spotify_query(ctx, args, context=ctx.raw_text)
             return
         # args limpos vindos do AI matcher → assume Spotify
         if args:
             await ctx.typing()
-            await _spotify_query(ctx, args)
+            await _spotify_query(ctx, args, context=ctx.raw_text)
             return
         await ctx.reply(
             "manda o link junto 🔗\n"
             "_aceito: YouTube, Spotify, Instagram, Twitter/X_\n"
             "_Spotify também aceita busca por texto._\n\n"
             "exemplos:\n"
-            "`!yt https://youtu.be/...`\n"
+            "`!yt zelda lost woods`\n"
             "`!spot zelda lost woods`\n"
             "`!ig https://instagram.com/reel/...`"
         )
@@ -551,9 +637,11 @@ async def handle(ctx: MessageContext):
 SKILL = Skill(
     name="delirius_dl",
     description=(
-        "*!yt <link>* — áudio do YouTube (MP3)\n"
-        "*!ytv <link>* — vídeo do YouTube (MP4)\n"
-        "*!spot <link ou busca>* — baixar do Spotify\n"
+        "Baixar músicas, vídeos e mídias — use quando alguém pede pra baixar, mandar, tocar ou buscar mídia.\n"
+        "Suporta: Spotify (busca por texto ou link), YouTube (busca por texto ou link, MP3/MP4), Instagram, Twitter/X.\n"
+        "*!spot <busca ou link>* — baixar/buscar no Spotify\n"
+        "*!yt <busca ou link>* — áudio do YouTube (MP3)\n"
+        "*!ytv <busca ou link>* — vídeo do YouTube (MP4)\n"
         "*!ig <link>* — baixar do Instagram\n"
         "*!x <link>* — baixar do Twitter/X"
     ),

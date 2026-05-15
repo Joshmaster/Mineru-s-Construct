@@ -179,7 +179,7 @@ async def handle_fala(ctx: MessageContext):
 
 SKILL_FALA = Skill(
     name="delirius_fala",
-    description="*!fala <texto>* — converte texto em áudio (pt/en/es/...)",
+    description="Converte texto em áudio/voz — use quando pedem pra falar, narrar, ler em voz alta ou gerar áudio de um texto.",
     triggers=["!fala", "!voz", "!tts", "!diz", "!falar"],
     handler=handle_fala,
     category="util",
@@ -226,10 +226,7 @@ async def handle_stickertext(ctx: MessageContext):
 
 SKILL_TT = Skill(
     name="delirius_tt",
-    description=(
-        "*!tt <texto>* — sticker com texto (estático)\n"
-        "*!attp <texto>* — sticker com texto (animado)"
-    ),
+    description="Cria figurinha/sticker com texto escrito — use quando pedir pra criar sticker, figurinha ou adesivo com um texto.",
     triggers=["!tt", "!ttp", "!attp", "!stickertext"],
     handler=handle_stickertext,
     category="midia",
@@ -271,7 +268,7 @@ async def handle_gif(ctx: MessageContext):
 
 SKILL_GIF = Skill(
     name="delirius_gif",
-    description="*!gif <busca>* — busca GIF no Tenor",
+    description="Busca e envia GIF animado — use quando pedem um GIF, meme animado ou reação em GIF sobre algum tema.",
     triggers=["!gif", "!giff"],
     handler=handle_gif,
     category="midia",
@@ -315,7 +312,7 @@ async def handle_print(ctx: MessageContext):
 
 SKILL_PRINT = Skill(
     name="delirius_print",
-    description="*!print <url>* — screenshot de qualquer site",
+    description="Tira screenshot de um site/URL e envia como imagem — use quando pedir print, captura ou foto de um site.",
     triggers=["!print", "!screenshot", "!screen"],
     handler=handle_print,
     category="util",
@@ -376,10 +373,7 @@ async def handle_melhora(ctx: MessageContext):
 
 SKILL_MELHORA = Skill(
     name="delirius_melhora",
-    description=(
-        "*!melhora <url>* — melhora qualidade da imagem (enhance)\n"
-        "*!upscale <url>* — aumenta resolução da imagem"
-    ),
+    description="Melhora qualidade ou aumenta resolução de uma imagem — use quando pedir pra melhorar, aumentar ou dar upscale numa imagem.",
     triggers=["!melhora", "!enhance", "!upscale", "!melhorar"],
     handler=handle_melhora,
     category="midia",

@@ -312,7 +312,7 @@ async def handle(ctx: MessageContext):
 
 SKILL = Skill(
     name="img_gerar",
-    description="*!img <prompt>* — gera imagem (Pollinations padrão, só dono)",
+    description="Gera imagem com IA a partir de um prompt — use quando pedir pra criar, gerar, desenhar ou ilustrar algo.",
     triggers=["!img"],
     handler=handle,
     category="midia",

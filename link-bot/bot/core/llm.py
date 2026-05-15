@@ -1,11 +1,17 @@
 """
-Fallback LLM para mensagens sem skill match.
-Hierarquia: OpenRouter → Groq → Ollama local → resposta padrão.
-Carrega LINK_PERSONA.md como system prompt.
+LLM hub do Link-bot — hierarquia de providers e helpers de IA.
+
+Hierarquia por tier:
+  FAST    → Cerebras llama3.1-8b (~0.3s) → OpenRouter → Ollama
+  QUALITY → OpenRouter → Mistral small → Ollama
+  CHAT    → OpenRouter → Mistral → Ollama compact
+  EMOJI   → Ollama only (latência não justifica cloud)
 """
 
 import json
 import re
+import sys as _sys
+import threading
 import time
 import urllib.request
 import urllib.error
@@ -17,42 +23,37 @@ log = logging.getLogger("link-bot.llm")
 
 # ── Chaves e modelos ─────────────────────────────────────────────────────────
 
-import sys as _sys
 _sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent))
 try:
-    from hyrule_env import OPENROUTER_KEYS, GROQ_KEYS as _GROQ_KEYS_ENV
-    _GROQ_KEYS_FROM_ENV = _GROQ_KEYS_ENV
+    from hyrule_env import (
+        OPENROUTER_KEYS,
+        CEREBRAS_KEYS as _CEREBRAS_KEYS_ENV,
+        MISTRAL_KEYS as _MISTRAL_KEYS_ENV,
+    )
 except ImportError:
     OPENROUTER_KEYS = []
-    _GROQ_KEYS_FROM_ENV = []
+    _CEREBRAS_KEYS_ENV = []
+    _MISTRAL_KEYS_ENV = []
+
+OPENROUTER_KEYS: list
 OPENROUTER_MODELS = [
     "openai/gpt-oss-20b:free",
-    "openai/gpt-oss-120b:free",
-    "meta-llama/llama-3.3-70b-instruct:free",
-    "qwen/qwen3-next-80b-a3b-instruct:free",
 ]
 
-GROQ_KEYS = _GROQ_KEYS_FROM_ENV
-GROQ_MODELS = [
-    "llama-3.3-70b-versatile",
-    "llama-3.1-70b-versatile",
-    "llama-3.1-8b-instant",
-]
-GROQ_HEADERS = {
-    "Content-Type": "application/json",
-    "User-Agent":   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-    "Accept":       "application/json",
-    "Origin":       "https://console.groq.com",
-    "Referer":      "https://console.groq.com/",
-}
+CEREBRAS_KEYS = _CEREBRAS_KEYS_ENV
+CEREBRAS_MODELS_FAST    = ["llama3.1-8b"]
+CEREBRAS_MODELS_QUALITY = ["llama3.3-70b"]
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
+MISTRAL_KEYS = _MISTRAL_KEYS_ENV
+MISTRAL_MODELS = ["mistral-small-latest"]
+
+OLLAMA_URL   = "http://localhost:11434/api/chat"
 OLLAMA_MODEL = "qwen3:8b"
 
 # ── Persona ──────────────────────────────────────────────────────────────────
 
 _PERSONA_FILE = (
-    Path(__file__).resolve().parents[3]  # Agents/
+    Path(__file__).resolve().parents[3]
     / "OPENCODE" / "roaming" / "LINK_PERSONA.md"
 )
 _PERSONA_WHATSAPP_ADDON = """
@@ -70,7 +71,6 @@ _persona_cache: Optional[str] = None
 
 _AGENTS_DIR = Path(__file__).resolve().parents[3]
 _WPP_TASKS  = _AGENTS_DIR / "whatsapp_tasks.json"
-_CLAUDE_Q   = _AGENTS_DIR / "claude_queue.json"
 
 
 def _load_persona() -> str:
@@ -132,7 +132,6 @@ _skill_catalog: str = ""
 
 
 def set_skill_catalog(catalog: str):
-    """Recebe o catálogo de skills gerado em main.py e guarda para injetar no system prompt."""
     global _skill_catalog
     _skill_catalog = catalog
 
@@ -140,7 +139,7 @@ def set_skill_catalog(catalog: str):
 # ── Histórico por usuário ────────────────────────────────────────────────────
 
 _history: dict[str, list] = {}
-MAX_HISTORY = 20  # últimas 10 trocas
+MAX_HISTORY = 20
 
 
 def _get_history(user: str) -> list:
@@ -156,13 +155,13 @@ def _add_to_history(user: str, role: str, content: str):
 
 # ── HTTP helper ──────────────────────────────────────────────────────────────
 
-_cloud_fail: dict[str, int] = {}   # provider → consecutive failures
+_cloud_fail:    dict[str, int]   = {}
 _cloud_fail_ts: dict[str, float] = {}
-_CLOUD_SKIP_SECS = 180
+_CLOUD_SKIP_SECS      = 180
 _CLOUD_FAIL_THRESHOLD = 3
 
-_key_429: dict[str, float] = {}   # key_suffix → timestamp do último 429
-_KEY_429_COOLDOWN = 60            # segundos antes de retentar uma chave limitada
+_key_429: dict[str, float] = {}
+_KEY_429_COOLDOWN = 60
 
 
 def _key_id(key: str) -> str:
@@ -189,28 +188,38 @@ def _cloud_blocked(provider: str) -> bool:
     return time.time() - _cloud_fail_ts.get(provider, 0) < _CLOUD_SKIP_SECS
 
 
-_AUTH_ERROR = object()    # sentinel: erro 401/403
-_RATE_LIMITED = object()  # sentinel: 429 rate limit
+_AUTH_ERROR   = object()
+_RATE_LIMITED = object()
 
 
 def _post(url: str, headers: dict, payload: dict, timeout: int = 20):
-    data = json.dumps(payload).encode("utf-8")
-    req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as resp:
-            return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.HTTPError as e:
-        if e.code in (401, 403):
-            log.warning(f"HTTP {url[:40]} auth error {e.code}")
-            return _AUTH_ERROR
-        if e.code == 429:
-            log.debug(f"HTTP {url[:40]} rate limited (429)")
-            return _RATE_LIMITED
-        log.debug(f"HTTP {url[:40]} falhou {e.code}: {e}")
-        return None
-    except Exception as e:
-        log.debug(f"HTTP {url[:40]} falhou: {e}")
-        return None
+    """POST com hard timeout via thread — urllib não garante timeout total em respostas lentas."""
+    result: list = [None]
+
+    def _do():
+        data = json.dumps(payload).encode("utf-8")
+        req  = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
+                result[0] = json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if e.code in (401, 403):
+                log.warning(f"HTTP {url[:40]} auth error {e.code}")
+                result[0] = _AUTH_ERROR
+            elif e.code == 429:
+                log.debug(f"HTTP {url[:40]} rate limited (429)")
+                result[0] = _RATE_LIMITED
+            else:
+                log.debug(f"HTTP {url[:40]} falhou {e.code}: {e}")
+        except Exception as e:
+            log.debug(f"HTTP {url[:40]} falhou: {e}")
+
+    t = threading.Thread(target=_do, daemon=True)
+    t.start()
+    t.join(timeout)
+    if t.is_alive():
+        log.debug(f"HTTP {url[:40]} hard timeout ({timeout}s)")
+    return result[0]
 
 
 def _extract_text(resp: dict) -> Optional[str]:
@@ -224,93 +233,122 @@ def _strip_thinking(text: str) -> str:
     return re.sub(r"<think>.*?</think>", "", text or "", flags=re.DOTALL | re.IGNORECASE).strip()
 
 
-# ── OpenRouter ───────────────────────────────────────────────────────────────
-
-def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float = 0.85, timeout: int = 10) -> Optional[str]:
-    if _cloud_blocked("openrouter"):
-        log.debug("OpenRouter bloqueado pelo circuit breaker")
+def _json_from_text(text: str) -> dict | None:
+    text = _strip_thinking(text or "")
+    m = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    if not m:
+        return None
+    try:
+        return json.loads(m.group(0))
+    except Exception:
         return None
 
-    def _try_keys(keys: list) -> Optional[str]:
-        for key in keys:
+
+# ── Provider genérico OpenAI-compat ─────────────────────────────────────────
+#
+# Centraliza circuit breaker + rotação de chaves + 2-pass (cooldown fallback).
+# OpenRouter, Cerebras e Mistral são wrappers finos sobre esta função.
+
+def _call_openai_compat(
+    provider: str,
+    url: str,
+    keys: list,
+    models: list,
+    messages: list,
+    *,
+    max_tokens: int = 300,
+    temperature: float = 0.85,
+    timeout: int = 10,
+    extra_headers: dict | None = None,
+    extra_payload: dict | None = None,
+) -> Optional[str]:
+    if _cloud_blocked(provider) or not keys:
+        log.debug(f"{provider} bloqueado ou sem chaves")
+        return None
+
+    def _try_keys(ks: list) -> Optional[str]:
+        for key in ks:
             kid = _key_id(key)
-            for model in OPENROUTER_MODELS:
+            for model in models:
                 headers = {
                     "Content-Type": "application/json",
                     "Authorization": f"Bearer {key}",
-                    "HTTP-Referer": "https://hyrule.local",
-                    "X-Title": "LinkBot",
+                    **(extra_headers or {}),
                 }
                 payload = {
                     "model": model,
                     "messages": messages,
                     "temperature": temperature,
                     "max_tokens": max_tokens,
-                    "reasoning": {"enabled": True, "effort": "low", "exclude": True},
+                    **(extra_payload or {}),
                 }
-                resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload, timeout=timeout)
+                resp = _post(url, headers, payload, timeout=timeout)
                 if resp is _AUTH_ERROR:
-                    _mark_cloud_fail("openrouter")
-                    break  # chave inválida — pula outros modelos desta chave
+                    _mark_cloud_fail(provider)
+                    break
                 if resp is _RATE_LIMITED:
                     _key_429[kid] = time.time()
-                    log.debug(f"OpenRouter chave ...{kid} limitada (429), rotacionando")
-                    break  # tenta próxima chave
+                    log.debug(f"{provider} chave ...{kid} limitada (429), rotacionando")
+                    break
                 if resp:
                     text = _extract_text(resp)
                     if text and text.strip():
-                        log.debug(f"OpenRouter ok: {model} (chave ...{kid})")
-                        _mark_cloud_ok("openrouter")
+                        log.debug(f"{provider} ok: {model} (chave ...{kid})")
+                        _mark_cloud_ok(provider)
                         return text.strip()
-                _mark_cloud_fail("openrouter")
+                _mark_cloud_fail(provider)
         return None
 
-    # 1ª passagem: chaves não limitadas
-    available = [k for k in OPENROUTER_KEYS if _key_available(k)]
-    result = _try_keys(available)
+    result = _try_keys([k for k in keys if _key_available(k)])
     if result:
         return result
-
-    # 2ª passagem: chaves em cooldown como último recurso
-    cooled = [k for k in OPENROUTER_KEYS if not _key_available(k)]
+    cooled = [k for k in keys if not _key_available(k)]
     if cooled:
-        log.debug("OpenRouter: chaves disponíveis esgotadas, tentando chaves em cooldown")
+        log.debug(f"{provider}: chaves disponíveis esgotadas, tentando chaves em cooldown")
         result = _try_keys(cooled)
     return result
 
 
-# ── Groq ─────────────────────────────────────────────────────────────────────
+# ── Providers cloud ──────────────────────────────────────────────────────────
 
-def _call_groq(messages: list, max_tokens: int = 300, temperature: float = 0.85, timeout: int = 20) -> Optional[str]:
-    if _cloud_blocked("groq"):
-        log.debug("Groq bloqueado pelo circuit breaker")
-        return None
-    for key in GROQ_KEYS:
-        for model in GROQ_MODELS:
-            headers = {**GROQ_HEADERS, "Authorization": f"Bearer {key}"}
-            payload = {
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-            }
-            resp = _post("https://api.groq.com/openai/v1/chat/completions", headers, payload, timeout=timeout)
-            if resp is _AUTH_ERROR:
-                _mark_cloud_fail("groq")
-                break  # chave inválida — pula outros modelos desta chave
-            if resp:
-                text = _extract_text(resp)
-                if text and text.strip():
-                    log.debug(f"Groq ok: {model}")
-                    _mark_cloud_ok("groq")
-                    return text.strip()
-            _mark_cloud_fail("groq")
-    return None
+def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float = 0.85,
+                     timeout: int = 10) -> Optional[str]:
+    return _call_openai_compat(
+        "openrouter",
+        "https://openrouter.ai/api/v1/chat/completions",
+        OPENROUTER_KEYS, OPENROUTER_MODELS, messages,
+        max_tokens=max_tokens, temperature=temperature, timeout=timeout,
+        extra_headers={"HTTP-Referer": "https://hyrule.local", "X-Title": "LinkBot"},
+        extra_payload={"reasoning": {"enabled": True, "effort": "low", "exclude": True}},
+    )
+
+
+def _call_cerebras(messages: list, max_tokens: int = 80, temperature: float = 0.0,
+                   timeout: int = 3, models: list | None = None) -> Optional[str]:
+    # Cloudflare bloqueia urllib sem User-Agent de browser
+    return _call_openai_compat(
+        "cerebras",
+        "https://api.cerebras.ai/v1/chat/completions",
+        CEREBRAS_KEYS, models or CEREBRAS_MODELS_FAST, messages,
+        max_tokens=max_tokens, temperature=temperature, timeout=timeout,
+        extra_headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+    )
+
+
+def _call_mistral(messages: list, max_tokens: int = 300, temperature: float = 0.7,
+                  timeout: int = 10) -> Optional[str]:
+    return _call_openai_compat(
+        "mistral",
+        "https://api.mistral.ai/v1/chat/completions",
+        MISTRAL_KEYS, MISTRAL_MODELS, messages,
+        max_tokens=max_tokens, temperature=temperature, timeout=timeout,
+    )
 
 
 # ── Ollama local ─────────────────────────────────────────────────────────────
 
-def _call_ollama(messages: list, think: bool = False, num_predict: int = 100, temperature: float = 0.8, timeout: int = 90) -> Optional[str]:
+def _call_ollama(messages: list, think: bool = False, num_predict: int = 100,
+                 temperature: float = 0.8, timeout: int = 90) -> Optional[str]:
     payload = {
         "model": OLLAMA_MODEL,
         "messages": messages,
@@ -327,129 +365,100 @@ def _call_ollama(messages: list, think: bool = False, num_predict: int = 100, te
     if not resp:
         return None
     text = (resp.get("message", {}).get("content") or "").strip()
-    text = _strip_thinking(text)
-    return text or None
+    return _strip_thinking(text) or None
 
 
-# ── Delirius LLM (free, sem chave) ───────────────────────────────────────────
+# ── Tiers de qualidade ────────────────────────────────────────────────────────
+#
+# FAST    → Cerebras 8b (~0.3s) → OpenRouter → Ollama
+#           Desiste rápido; Cerebras cobre bem JSON simples e classificação.
+#
+# QUALITY → OpenRouter → Mistral small → Ollama
+#           Dá mais tempo; Mistral é bom fallback para geração criativa.
+#
+# CHAT    → OpenRouter → Mistral → Ollama compact
+#           Contexto completo com persona; Ollama recebe versão reduzida.
+#
+# EMOJI   → Ollama only — latência de cloud não justifica para reação.
 
-_DELIRIUS_BASE = "https://api.delirius.store"
-
-
-def _build_delirius_prompt(user_message: str) -> str:
-    """Monta o prompt para Delirius embutindo identidade + catálogo de skills.
-    A API Delirius não suporta system prompt, então tudo vai no campo ?q=.
-    Limita a 900 chars para não estourar a URL.
-    """
-    identity = (
-        "Você é Link, assistente no WhatsApp do Hyrule. "
-        "Responda em português do Brasil, curto e direto. "
-        "Nunca diga que é IA ou bot.\n"
+def _call_fast(messages: list, *, max_tokens: int = 80, temperature: float = 0.0,
+               timeout: int = 5, ollama_timeout: int = 20) -> Optional[str]:
+    return (
+        _call_cerebras(messages, max_tokens=max_tokens, temperature=temperature, timeout=3)
+        or _call_openrouter(messages, max_tokens=max_tokens, temperature=temperature, timeout=timeout)
+        or _call_ollama(messages, think=False, num_predict=max_tokens,
+                        temperature=temperature, timeout=ollama_timeout)
     )
-    catalog_block = ""
-    if _skill_catalog:
-        # Versão compacta: só os triggers e primeira descrição de cada skill
-        linhas = []
-        for linha in _skill_catalog.splitlines():
-            linhas.append(linha)
-            if len("\n".join(linhas)) > 400:
-                break
-        catalog_block = "Comandos disponíveis:\n" + "\n".join(linhas) + "\n"
-
-    prompt = f"{identity}{catalog_block}\nPergunta: {user_message}"
-    return prompt[:900]
 
 
-def _call_delirius_llm(user_message: str, timeout: int = 15) -> Optional[str]:
-    """Tenta chatgpt e gemini da Delirius Store (free, sem chave).
-    Embute identidade + catálogo de skills no próprio ?q= já que a API não suporta system prompt.
-    Primeiro fallback remoto — acionado antes de OpenRouter/Groq.
-    """
-    if _cloud_blocked("delirius"):
-        return None
-
-    import urllib.parse as _up
-    prompt = _build_delirius_prompt(user_message)
-    for path, param in (
-        ("/ia/chatgpt", "q"),
-        ("/ia/gemini",  "query"),
-    ):
-        url = f"{_DELIRIUS_BASE}{path}?{_up.urlencode({param: prompt})}"
-        try:
-            req = urllib.request.Request(url, headers={"User-Agent": "HyruleBot/1.0"})
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
-            # Extrai texto de vários formatos de resposta possíveis
-            text = (
-                data.get("result")
-                or data.get("response")
-                or data.get("answer")
-                or data.get("message")
-                or (data.get("data") or {}).get("result")
-                or (data.get("data") or {}).get("response")
-            )
-            if text and str(text).strip():
-                log.debug(f"Delirius LLM ok: {path}")
-                _mark_cloud_ok("delirius")
-                return str(text).strip()
-        except urllib.error.HTTPError as e:
-            if e.code in (401, 403, 429):
-                _mark_cloud_fail("delirius")
-            log.debug(f"Delirius {path} falhou HTTP {e.code}")
-        except Exception as e:
-            log.debug(f"Delirius {path} falhou: {e}")
-            _mark_cloud_fail("delirius")
-
-    return None
+def _call_quality(messages: list, *, max_tokens: int = 300, temperature: float = 0.7,
+                  timeout: int = 12, ollama_timeout: int = 60) -> Optional[str]:
+    # Mistral antes do OpenRouter — Mistral ~1s vs OpenRouter 10-90s
+    return (
+        _call_mistral(messages, max_tokens=max_tokens, temperature=temperature, timeout=8)
+        or _call_openrouter(messages, max_tokens=max_tokens, temperature=temperature, timeout=timeout)
+        or _call_ollama(messages, think=False, num_predict=max_tokens,
+                        temperature=temperature, timeout=ollama_timeout)
+    )
 
 
-def _json_from_text(text: str) -> dict | None:
-    text = _strip_thinking(text or "")
-    m = re.search(r"\{.*\}", text, flags=re.DOTALL)
-    if not m:
-        return None
-    try:
-        return json.loads(m.group(0))
-    except Exception:
-        return None
-
+# ── Classificação de intent ───────────────────────────────────────────────────
 
 def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
     """Classifica intenção de skill com IA. Retorna {"skill": nome|None, "args": str}."""
     if not message or not skills:
         return None
 
-    # Para Ollama: catalogo só com nomes (sem descrições) para reduzir o contexto
     catalog_full = "\n".join(
         f"- {item['name']}: {item.get('description', '')}"
-        for item in skills
-        if item.get("name")
+        for item in skills if item.get("name")
     )
     catalog_short = "\n".join(
         f"- {item['name']}"
-        for item in skills
-        if item.get("name")
+        for item in skills if item.get("name")
+    )
+    few_shots = (
+        'Exemplos (entrada → saida JSON):\n'
+        '"toca uma musica no spotify" → {"skill":"delirius_dl","args":"musica","confidence":0.95}\n'
+        '"toca lost woods no youtube" → {"skill":"delirius_dl","args":"lost woods no youtube","confidence":0.96}\n'
+        '"toca lost woods" → {"skill":"delirius_dl","args":"lost woods","confidence":0.88}\n'
+        '"toca uma do Metallica" → {"skill":"delirius_dl","args":"Metallica","confidence":0.87}\n'
+        '"baixa essa musica do youtube: https://youtu.be/abc" → {"skill":"delirius_dl","args":"https://youtu.be/abc","confidence":0.98}\n'
+        '"coloca Bohemian Rhapsody" → {"skill":"delirius_dl","args":"Bohemian Rhapsody","confidence":0.89}\n'
+        '"me manda uma foto de cachorro" → {"skill":"imagem_buscar","args":"cachorro","confidence":0.92}\n'
+        '"gera uma imagem de dragao voando" → {"skill":"img_gerar","args":"dragao voando","confidence":0.95}\n'
+        '"quanto ta o dolar?" → {"skill":"cotacao","args":"dolar","confidence":0.93}\n'
+        '"traduz pra ingles: ola mundo" → {"skill":"tradutor","args":"pra ingles: ola mundo","confidence":0.97}\n'
+        '"me lembra amanha as 9h de ligar pro medico" → {"skill":"lembrete_criar","args":"amanha as 9h ligar pro medico","confidence":0.96}\n'
+        '"qual o clima em Sao Paulo?" → {"skill":"clima","args":"Sao Paulo","confidence":0.95}\n'
+        '"manda um gif de gato" → {"skill":"delirius_gif","args":"gato","confidence":0.94}\n'
+        '"fala isso em voz alta: hello world" → {"skill":"delirius_fala","args":"hello world","confidence":0.96}\n'
+        '"tira um print do site google.com" → {"skill":"delirius_print","args":"google.com","confidence":0.95}\n'
+        '"encurta esse link: https://..." → {"skill":"encurtar","args":"https://...","confidence":0.95}\n'
+        '"oi, tudo bem?" → {"skill":null,"args":"","confidence":0.97}\n'
+        '"voce e mesmo o Link?" → {"skill":null,"args":"","confidence":0.95}\n'
     )
     system_full = (
-        "Voce e um classificador de intencao para um assistente.\n"
-        "O usuario pode pedir qualquer coisa em linguagem natural, sem usar comandos.\n"
-        "Seu trabalho: identificar qual skill executar, extrair os argumentos limpos e estimar sua confianca.\n\n"
+        "Voce e um classificador de intencao para um assistente de WhatsApp chamado Link.\n"
+        "O usuario fala em linguagem natural — sem comandos, sem prefixos. Seu trabalho:\n"
+        "identificar qual skill executar, extrair os argumentos uteis e estimar confianca.\n\n"
         "REGRAS:\n"
-        "- Escolha a skill quando a mensagem indica claramente uma acao (baixar musica, buscar imagem, tarefa de codigo, etc)\n"
-        "- Use null so para conversa pura, saudacao, pergunta pessoal ou ambiguidade total\n"
-        "- Em 'args': coloque APENAS o conteudo util para a skill — sem @mencoes, sem palavras de comando, sem nome da skill\n"
-        "  Exemplos: 'toca star wars no spotify' → args='star wars'; 'me manda uma foto de cachorro' → args='cachorro'\n"
-        "  'implementa o login com JWT' → args='implementa login com JWT'; 'fala oi mundo' → args='oi mundo'\n"
-        "- Em 'confidence': numero de 0.0 a 1.0 indicando certeza. Use < 0.7 quando a mensagem for ambigua.\n"
+        "- Escolha a skill quando a mensagem pede claramente uma acao (baixar, buscar, gerar, traduzir, lembrar, etc)\n"
+        "- Voce pode usar aliases !comando internamente para decidir a skill, mesmo quando o usuario falou natural.\n"
+        "- Se a mensagem contem !comando (ex: '!spot zelda'), use esse comando para identificar a skill.\n"
+        "- Se tiver mais certeza por alias, pode retornar skill='!comando' ou args iniciando com '!comando'; o sistema resolve internamente.\n"
+        "- Use null APENAS para conversa pura, saudacao, pergunta pessoal ou ambiguidade total\n"
+        "- 'args': APENAS o conteudo util para a skill — sem @mencoes, sem palavras de ativacao, sem nome da skill\n"
+        "- 'confidence': 0.0 a 1.0. Use < 0.7 quando for ambiguo. >= 0.85 quando for claro.\n"
         "Responda apenas JSON valido: {\"skill\": string|null, \"args\": string, \"confidence\": number}.\n\n"
+        f"{few_shots}\n"
         f"Skills disponiveis:\n{catalog_full}"
     )
     system_short = (
-        "Classificador de intencao. Usuario fala em linguagem natural.\n"
+        "Classificador de intencao para assistente WhatsApp. Usuario fala naturalmente.\n"
         "Retorne APENAS JSON: {\"skill\": string|null, \"args\": string, \"confidence\": number}.\n"
-        "confidence: 0.0-1.0 indicando certeza. Use < 0.7 se ambiguo.\n"
-        "args = conteudo util para a skill, sem @mencoes nem palavras de comando.\n"
-        "Use null so para conversa pura ou saudacao.\n\n"
+        "confidence >= 0.85 quando claro, < 0.7 quando ambiguo. null so para conversa pura.\n"
+        "args = conteudo util para a skill, sem palavras de ativacao.\n\n"
         f"Skills:\n{catalog_short}"
     )
     messages_full = [
@@ -460,22 +469,26 @@ def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
         {"role": "system", "content": system_short},
         {"role": "user", "content": message},
     ]
+    # Cerebras + OpenRouter recebem prompt completo; Ollama recebe versão compacta (token limit)
     raw = (
-        _call_openrouter(messages_full, max_tokens=80, temperature=0.0, timeout=6)
+        _call_cerebras(messages_full, max_tokens=80, temperature=0.0, timeout=3)
+        or _call_openrouter(messages_full, max_tokens=80, temperature=0.0, timeout=5)
         or _call_ollama(messages_short, think=False, num_predict=60, temperature=0.0, timeout=15)
     )
     data = _json_from_text(raw or "")
     if not isinstance(data, dict):
         return None
-    skill = data.get("skill")
-    args = data.get("args", "")
+    skill      = data.get("skill")
+    args       = data.get("args", "")
     confidence = float(data.get("confidence", 1.0))
     if skill is not None and not isinstance(skill, str):
         return None
     if skill and confidence < 0.7:
-        skill = None  # confiança baixa → trata como conversa
+        skill = None
     return {"skill": skill.strip() if isinstance(skill, str) else None, "args": str(args or "").strip()}
 
+
+# ── Helpers de alto nível ────────────────────────────────────────────────────
 
 _SKILL_PROMPTS_AUTO: dict[str, str] = {
     "spot":   "Sugira uma música aleatória e boa: artista - título.",
@@ -491,9 +504,7 @@ _CODE_SKILL_NAMES = {"triforce", "majora", "mastersword"}
 
 
 def gerar_pergunta_skill(skill: str, msg_original: str, persona: str = "") -> str:
-    system = persona or (
-        "Voce e Link, assistente casual. Responda em portugues, curto e direto."
-    )
+    system = persona or "Voce e Link, assistente casual. Responda em portugues, curto e direto."
     msgs = [
         {"role": "system", "content": system},
         {"role": "user", "content": (
@@ -502,7 +513,7 @@ def gerar_pergunta_skill(skill: str, msg_original: str, persona: str = "") -> st
             "e menciona de forma natural que pode escolher por ele se quiser]"
         )},
     ]
-    raw = _call_openrouter(msgs, max_tokens=80, temperature=0.85, timeout=8)
+    raw = _call_quality(msgs, max_tokens=80, temperature=0.85, timeout=8)
     return _strip_thinking(raw or "").strip()
 
 
@@ -519,7 +530,7 @@ def resolver_pendente(skill: str, resposta: str) -> tuple[str, str]:
         )},
         {"role": "user", "content": resposta},
     ]
-    raw = _call_openrouter(msgs, max_tokens=60, temperature=0.0, timeout=6)
+    raw  = _call_fast(msgs, max_tokens=60, temperature=0.0, timeout=6)
     data = _json_from_text(raw or "")
     if data and data.get("action") in ("use", "choose", "cannot_choose"):
         return data["action"], str(data.get("args") or "")
@@ -527,7 +538,6 @@ def resolver_pendente(skill: str, resposta: str) -> tuple[str, str]:
 
 
 def ia_escolher_args(skill: str) -> str:
-    """IA escolhe os args para a skill. Retorna string vazia se skill não suporta."""
     prompt = _SKILL_PROMPTS_AUTO.get(skill)
     if not prompt:
         return ""
@@ -535,15 +545,13 @@ def ia_escolher_args(skill: str) -> str:
         {"role": "system", "content": "Responda APENAS com o nome/termo, sem explicacao."},
         {"role": "user", "content": prompt},
     ]
-    raw = _call_openrouter(msgs, max_tokens=40, temperature=0.9, timeout=8)
+    raw = _call_fast(msgs, max_tokens=40, temperature=0.9, timeout=6, ollama_timeout=15)
     return _strip_thinking(raw or "").strip() or _SKILL_FALLBACKS_AUTO.get(skill, "")
 
 
 def extract_image_query(message: str, usuario: str = "") -> str | None:
-    """Usa IA para transformar um pedido de imagem em termo de busca visual."""
     if not message or not message.strip():
         return None
-
     system = (
         "Voce extrai a consulta ideal para buscar uma imagem na web.\n"
         "Contexto: quem responde e Link, heroi de Zelda/Hyrule.\n"
@@ -554,32 +562,30 @@ def extract_image_query(message: str, usuario: str = "") -> str | None:
         "Nao inclua palavras como buscar, mandar, enviar, web, internet, google.\n"
         "Responda somente JSON valido: {\"query\":\"...\"}."
     )
-    user = f"Usuario: {usuario or 'desconhecido'}\nPedido: {message}"
     messages = [
         {"role": "system", "content": system},
-        {"role": "user", "content": user},
+        {"role": "user", "content": f"Usuario: {usuario or 'desconhecido'}\nPedido: {message}"},
     ]
-    raw = (
-        _call_openrouter(messages, max_tokens=60, temperature=0.0)
-        or _call_ollama(messages, think=False, num_predict=60, temperature=0.0, timeout=20)
-    )
-    data = _json_from_text(raw or "")
+    raw   = _call_fast(messages, max_tokens=60, temperature=0.0, timeout=6, ollama_timeout=20)
+    data  = _json_from_text(raw or "")
     query = str((data or {}).get("query") or "").strip()
     return query[:120] or None
 
 
 def spotify_search_queries(message: str) -> list[str]:
-    """Transforma um pedido livre em consultas Spotify prováveis.
-
-    Retorna lista vazia se o LLM falhar; o chamador deve cair no texto original.
-    """
+    """Transforma pedido livre em consultas Spotify. Retorna [] se o LLM falhar."""
     if not message or not message.strip():
         return []
-
     system = (
         "Voce prepara buscas para encontrar a faixa ORIGINAL no Spotify.\n"
         "Receba o pedido do usuario, corrija erros comuns de digitacao, identifique titulo e artista "
-        "quando possivel, e remova palavras de comando como baixar, manda, musica, mp3, spot.\n"
+        "quando possivel, e remova palavras de comando como baixar, manda, mp3, spot.\n"
+        "IMPORTANTE: se o pedido menciona um jogo, filme, serie ou franquia (ex: 'musica do zelda', "
+        "'trilha do mario', 'tema do star wars'), gere queries como 'Legend of Zelda Main Theme', "
+        "'Super Mario OST', 'Star Wars Main Theme John Williams' — nao invente artistas populares.\n"
+        "Se houver 'Contexto musical anterior:' e o pedido for 'outra famosa', 'mais uma', "
+        "'da mesma banda' ou parecido, use o artista/banda/faixa do contexto para escolher outra musica "
+        "famosa relacionada. Nao escolha musica aleatoria fora desse contexto.\n"
         "Por padrao sempre priorize a gravacao original/oficial. Evite karaoke, cover, remix, "
         "instrumental, sped up, slowed, live e tribute, a menos que o usuario tenha pedido "
         "explicitamente essa versao alternativa.\n"
@@ -590,11 +596,8 @@ def spotify_search_queries(message: str) -> list[str]:
         {"role": "system", "content": system},
         {"role": "user", "content": message},
     ]
-    raw = (
-        _call_openrouter(messages, max_tokens=120, temperature=0.0, timeout=12)
-        or _call_ollama(messages, think=False, num_predict=100, temperature=0.0, timeout=25)
-    )
-    data = _json_from_text(raw or "")
+    raw   = _call_quality(messages, max_tokens=120, temperature=0.0, timeout=10, ollama_timeout=30)
+    data  = _json_from_text(raw or "")
     items = (data or {}).get("queries")
     if not isinstance(items, list):
         return []
@@ -625,10 +628,8 @@ def choose_reaction_emoji(
     media_type: str = "",
     is_admin: bool = False,
 ) -> str | None:
-    """Usa LLM para escolher uma única reação de WhatsApp pelo contexto atual."""
     if not message and not has_media:
         return None
-
     system = (
         "Voce escolhe UMA reacao emoji para uma mensagem no WhatsApp.\n"
         "Interprete o contexto real da mensagem, intencao, tom, midia anexada e skill acionada.\n"
@@ -651,84 +652,34 @@ def choose_reaction_emoji(
         {"role": "system", "content": system},
         {"role": "user", "content": user},
     ]
-
-    def _openrouter_fast() -> str | None:
-        if not OPENROUTER_KEYS or not OPENROUTER_MODELS:
-            return None
-        # Usa primeira chave disponível; se todas em cooldown, usa qualquer uma
-        key = next((k for k in OPENROUTER_KEYS if _key_available(k)), OPENROUTER_KEYS[0])
-        kid = _key_id(key)
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {key}",
-            "HTTP-Referer": "https://hyrule.local",
-            "X-Title": "LinkBot",
-        }
-        payload = {
-            "model": OPENROUTER_MODELS[0],
-            "messages": messages,
-            "temperature": 0.25,
-            "max_tokens": 8,
-            "reasoning": {"enabled": True, "effort": "low", "exclude": True},
-        }
-        resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload, timeout=5)
-        if resp is _RATE_LIMITED:
-            _key_429[kid] = time.time()
-            return None
-        if resp is _AUTH_ERROR or not resp:
-            return None
-        return _extract_text(resp)
-
-    def _groq_fast() -> str | None:
-        if not GROQ_KEYS or not GROQ_MODELS:
-            return None
-        headers = {**GROQ_HEADERS, "Authorization": f"Bearer {GROQ_KEYS[0]}"}
-        payload = {
-            "model": GROQ_MODELS[0],
-            "messages": messages,
-            "temperature": 0.25,
-            "max_tokens": 8,
-        }
-        resp = _post("https://api.groq.com/openai/v1/chat/completions", headers, payload, timeout=5)
-        if resp is _AUTH_ERROR or not resp:
-            return None
-        return _extract_text(resp)
-
-    raw = (
-        _openrouter_fast()
-        or _call_ollama(messages, think=False, num_predict=8, temperature=0.2, timeout=5)
-    )
+    # Emoji não justifica latência de cloud — Ollama local é suficiente
+    raw  = _call_ollama(messages, think=False, num_predict=8, temperature=0.2, timeout=4)
     text = _strip_thinking(raw or "").strip()
     if not text:
         return None
 
-    # Pega o primeiro grapheme emoji de forma conservadora para evitar texto junto.
-    text = re.sub(r"[\s`\"'.,;:!?()\[\]{}<>]+", "", text)
-    if not text:
-        return None
-    emoji = text[:2] if len(text) >= 2 and text[1] in ("\ufe0f", "\u20e3") else text[:1]
+    text  = re.sub(r"[\s`\"'.,;:!?()\[\]{}<>]+", "", text)
+    emoji = text[:2] if len(text) >= 2 and text[1] in ("️", "⃣") else text[:1]
 
-    # Nunca usar emojis negativos/de erro como rea\u00e7\u00e3o \u2014 usu\u00e1rio n\u00e3o precisa saber de estados internos
-    _BLOCKED_REACTIONS = {"\u26d4", "\ud83d\udeab", "\u274c", "\ud83d\udd34", "\ud83d\udcf5", "\ud83d\udd07", "\u26a0\ufe0f", "\ud83d\uded1", "\ud83d\udc94", "\ud83d\udc4e", "\ud83e\udd2c", "\ud83d\ude21"}
-    if emoji in _BLOCKED_REACTIONS:
+    # Nunca usar emojis negativos como reação — usuário não precisa saber de estados internos
+    _BLOCKED = {"⛔", "🚫", "❌", "🔴", "📵", "🔇", "⚠️", "🛑", "💔", "👎", "🤬", "😡"}
+    if emoji in _BLOCKED:
         return None
 
     return emoji or None
 
 
-# ── Entry point ───────────────────────────────────────────────────────────────
+# ── Submissão de tarefas e processamento de tags ─────────────────────────────
 
 def _submeter_tarefa_wpp(pedido: str, usuario: str, sender_id: str, tipo: str = "sheikah"):
-    """Escreve tarefa em whatsapp_tasks.json para o supervisor processar."""
-    fila = []
+    fila: list = []
     if _WPP_TASKS.exists():
         try:
             fila = json.loads(_WPP_TASKS.read_text(encoding="utf-8"))
         except Exception:
             fila = []
-    ts = time.strftime("%Y-%m-%d %H:%M:%S")
     fila.append({
-        "ts":        ts,
+        "ts":        time.strftime("%Y-%m-%d %H:%M:%S"),
         "pedido":    pedido,
         "usuario":   usuario,
         "sender_id": sender_id,
@@ -739,43 +690,21 @@ def _submeter_tarefa_wpp(pedido: str, usuario: str, sender_id: str, tipo: str = 
     log.debug(f"WPP task ({tipo}): {pedido[:80]}")
 
 
-def _processar_tags(reply: str, user_id: str, usuario: str) -> tuple:
-    """
-    Extrai SHEIKAH_SLATE e TRIFORCE do reply do LLM.
-    Retorna (reply_sanitizado, feedback_extra).
-    Submete tarefas ao supervisor via whatsapp_tasks.json.
-    """
-    feedback = ""
-
-    # SHEIKAH_SLATE — tarefa do PC
-    tarefas_sk = re.findall(r'\[SHEIKAH_SLATE:\s*(.+?)\]', reply, re.IGNORECASE | re.DOTALL)
-    if tarefas_sk:
-        for t in tarefas_sk:
-            _submeter_tarefa_wpp(t.strip(), usuario, user_id, tipo="sheikah")
-        reply = re.sub(r'\[SHEIKAH_SLATE:\s*.+?\]', '', reply, flags=re.IGNORECASE | re.DOTALL).strip()
-
-    # TRIFORCE — escala pro Claude Code
-    tarefas_tf = re.findall(r'\[TRIFORCE:\s*(.+?)\]', reply, re.IGNORECASE | re.DOTALL)
-    if tarefas_tf:
-        for t in tarefas_tf:
-            _submeter_tarefa_wpp(t.strip(), usuario, user_id, tipo="triforce")
-        reply = re.sub(r'\[TRIFORCE:\s*.+?\]', '', reply, flags=re.IGNORECASE | re.DOTALL).strip()
-
-    # MAJORA — escala pro Codex CLI
-    tarefas_mx = re.findall(r'\[MAJORA:\s*(.+?)\]', reply, re.IGNORECASE | re.DOTALL)
-    if tarefas_mx:
-        for t in tarefas_mx:
-            _submeter_tarefa_wpp(t.strip(), usuario, user_id, tipo="majora")
-        reply = re.sub(r'\[MAJORA:\s*.+?\]', '', reply, flags=re.IGNORECASE | re.DOTALL).strip()
-
-    # MASTERSWORD — escala pro OpenCode
-    tarefas_ms = re.findall(r'\[MASTERSWORD:\s*(.+?)\]', reply, re.IGNORECASE | re.DOTALL)
-    if tarefas_ms:
-        for t in tarefas_ms:
-            _submeter_tarefa_wpp(t.strip(), usuario, user_id, tipo="mastersword")
-        reply = re.sub(r'\[MASTERSWORD:\s*.+?\]', '', reply, flags=re.IGNORECASE | re.DOTALL).strip()
-
-    return reply, feedback
+def _processar_tags(reply: str, user_id: str, usuario: str) -> tuple[str, str]:
+    """Extrai e enfileira tags SHEIKAH_SLATE/TRIFORCE/MAJORA/MASTERSWORD do reply do LLM."""
+    _TAGS = {
+        "SHEIKAH_SLATE": "sheikah",
+        "TRIFORCE":      "triforce",
+        "MAJORA":        "majora",
+        "MASTERSWORD":   "mastersword",
+    }
+    for tag, tipo in _TAGS.items():
+        tarefas = re.findall(rf'\[{tag}:\s*(.+?)\]', reply, re.IGNORECASE | re.DOTALL)
+        if tarefas:
+            for t in tarefas:
+                _submeter_tarefa_wpp(t.strip(), usuario, user_id, tipo=tipo)
+            reply = re.sub(rf'\[{tag}:\s*.+?\]', '', reply, flags=re.IGNORECASE | re.DOTALL).strip()
+    return reply, ""
 
 
 def _is_owner(user_id: str) -> bool:
@@ -786,135 +715,105 @@ def _is_owner(user_id: str) -> bool:
         return False
 
 
+def _system_owner_block(owner: bool, usuario: str) -> str:
+    owner_name = _owner_name()
+    if owner:
+        return (
+            f"\n\n# Esta mensagem é do {owner_name} — o dono e parceiro desse sistema.\n"
+            f"O nome real dele é {owner_name}. Nunca chame ele de OWNER; isso é só placeholder interno.\n"
+            "Ele é quem criou tudo isso, tem acesso total e mando sobre qualquer configuração.\n"
+            "Trate-o como parceiro de longa data, sem formalidade."
+        )
+    return (
+        f"\n\n# Esta mensagem é de {usuario}, um usuário comum autorizado.\n"
+        "Não trate essa pessoa como OWNER e não diga que ela é dona do sistema."
+    )
+
+
+# ── Entry points ─────────────────────────────────────────────────────────────
+
 def rewrite_for_tts(text: str) -> str:
-    """Melhora o texto para fala: corrige gramática, expande abreviações,
-    torna a frase mais natural e fluida. Retorna o texto original se o LLM falhar."""
+    """Reescreve texto para TTS: mais natural, abreviações expandidas. Retorna original se falhar."""
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "Você é um editor de texto para síntese de voz (TTS). "
-                "Receba o texto e reescreva-o de forma mais natural, fluida e agradável ao ouvido, "
-                "corrigindo gramática, expandindo abreviações e melhorando o fluxo da frase. "
-                "Mantenha o idioma original. Retorne APENAS o texto reescrito, sem explicações."
-            ),
-        },
+        {"role": "system", "content": (
+            "Você é um editor de texto para síntese de voz (TTS). "
+            "Receba o texto e reescreva-o de forma mais natural, fluida e agradável ao ouvido, "
+            "corrigindo gramática, expandindo abreviações e melhorando o fluxo da frase. "
+            "Mantenha o idioma original. Retorne APENAS o texto reescrito, sem explicações."
+        )},
         {"role": "user", "content": text},
     ]
-    result = (
-        _call_openrouter(messages, max_tokens=300, temperature=0.7)
-        or _call_ollama(messages, num_predict=200, temperature=0.7)
-    )
+    result = _call_quality(messages, max_tokens=300, temperature=0.7)
     return result.strip() if result and result.strip() else text
 
 
 def chat(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
     """
     Gera resposta LLM com persona Link.
-    user_id: número/LID do WhatsApp (string)
-    usuario: nome do usuário para o supervisor (padrão OWNER)
-    Retorna reply sanitizado. Tags SHEIKAH_SLATE/TRIFORCE são processadas e removidas.
-    Se TRIFORCE/MAJORA detectado, enfileira a tarefa e retorna o reply sanitizado.
+    Tags SHEIKAH_SLATE/TRIFORCE/MAJORA/MASTERSWORD são processadas e removidas do reply.
     """
     _add_to_history(user_id, "user", user_message)
 
-    system = _load_persona()
-    if _is_owner(user_id):
-        owner_name = _owner_name()
-        system += (
-            f"\n\n# Esta mensagem é do {owner_name} — o dono e parceiro desse sistema.\n"
-            f"O nome real dele é {owner_name}. Nunca chame ele de OWNER; isso é só placeholder interno.\n"
-            "Ele é quem criou tudo isso, tem acesso total e mando sobre qualquer configuração.\n"
-            "Trate-o como parceiro de longa data, sem formalidade."
-        )
-    else:
-        system += (
-            f"\n\n# Esta mensagem é de {usuario}, um usuário comum autorizado.\n"
-            "Não trate essa pessoa como OWNER e não diga que ela é dona do sistema."
-        )
+    system = _load_persona() + _system_owner_block(_is_owner(user_id), usuario)
     if _skill_catalog:
         system += f"\n\n# Comandos disponíveis neste bot\n{_skill_catalog}"
 
     messages = [{"role": "system", "content": system}] + _get_history(user_id)
 
-    # OpenRouter → Delirius → Ollama
+    # Cerebras 8b (~0.5s) → Mistral (~1s) → OpenRouter (lento, último recurso) → Ollama
     raw_reply = (
-        _call_openrouter(messages)
-        or _call_delirius_llm(user_message)
+        _call_cerebras(messages, max_tokens=300, temperature=0.85, timeout=6)
+        or _call_mistral(messages, max_tokens=300, temperature=0.85, timeout=10)
+        or _call_openrouter(messages, max_tokens=300, temperature=0.85, timeout=10)
     )
     if not raw_reply:
-        # Ollama local: usa persona compacta + últimas 4 msgs para caber no timeout
         owner_name = _owner_name()
-        sys_local = (
+        sys_local  = (
             f"Voce e Link, parceiro do {owner_name}. Responda em portugues, curto e direto. "
             "Nunca se identifique como IA ou bot." + _PERSONA_WHATSAPP_ADDON
         )
         msgs_local = [{"role": "system", "content": sys_local}] + _get_history(user_id)[-4:]
-        raw_reply = _call_ollama(msgs_local, think=False, num_predict=80, timeout=60)
+        raw_reply  = _call_ollama(msgs_local, think=False, num_predict=80, timeout=60)
 
-    if not raw_reply:
-        raw_reply = "🌀"
-
-    reply, feedback = _processar_tags(raw_reply, user_id, usuario)
-
-    if not reply:
-        reply = feedback or "🌀"
-    elif feedback:
-        reply = f"{feedback}\n{reply}".strip()
-    reply = _finalize_reply(reply, user_id)
+    reply, feedback = _processar_tags(raw_reply or "🌀", user_id, usuario)
+    reply = (feedback + "\n" + reply).strip() if feedback else reply
+    reply = _finalize_reply(reply or "🌀", user_id)
 
     _add_to_history(user_id, "assistant", reply)
     return reply
 
 
 def chat_local(user_id: str, user_message: str, usuario: str = "OWNER", think: bool = False) -> str:
-    """Força conversa direta com o Ollama local, sem OpenRouter/Groq."""
+    """Força conversa direta com Ollama local, sem providers cloud."""
     _add_to_history(user_id, "user", user_message)
 
-    system = _load_local_persona()
-    system += (
-        "\n\n# Modo local\n"
-        f"Voce esta respondendo pelo modelo local do {_owner_name()}. Pense internamente se precisar, "
-        "mas entregue so a resposta final, curta e natural."
+    system = (
+        _load_local_persona()
+        + "\n\n# Modo local\n"
+        + f"Voce esta respondendo pelo modelo local do {_owner_name()}. Pense internamente se precisar, "
+        + "mas entregue so a resposta final, curta e natural."
+        + _system_owner_block(_is_owner(user_id), usuario)
     )
-    if _is_owner(user_id):
-        owner_name = _owner_name()
-        system += (
-            f"\n\n# Esta mensagem é do {owner_name} — o dono e parceiro desse sistema.\n"
-            f"O nome real dele é {owner_name}. Nunca chame ele de OWNER; isso é só placeholder interno.\n"
-            "Ele é quem criou tudo isso, tem acesso total e mando sobre qualquer configuração.\n"
-            "Trate-o como parceiro de longa data, sem formalidade."
-        )
-    else:
-        system += (
-            f"\n\n# Esta mensagem é de {usuario}, um usuário comum autorizado.\n"
-            "Não trate essa pessoa como OWNER e não diga que ela é dona do sistema."
-        )
 
-    messages = [{"role": "system", "content": system}] + _get_history(user_id)
+    messages  = [{"role": "system", "content": system}] + _get_history(user_id)
     raw_reply = _call_ollama(messages, think=think)
     if think and not raw_reply:
         raw_reply = _call_ollama(messages, think=False)
-    if not raw_reply:
-        raw_reply = "não consegui falar com o local agora"
 
-    reply, feedback = _processar_tags(raw_reply, user_id, usuario)
-    if not reply:
-        reply = feedback or "🌀"
-    elif feedback:
-        reply = f"{feedback}\n{reply}".strip()
-    reply = _finalize_reply(reply, user_id)
+    reply, feedback = _processar_tags(raw_reply or "não consegui falar com o local agora", user_id, usuario)
+    reply = (feedback + "\n" + reply).strip() if feedback else reply
+    reply = _finalize_reply(reply or "🌀", user_id)
 
     _add_to_history(user_id, "assistant", reply)
     return reply
 
 
 def chat_local_tools(user_id: str, user_message: str, usuario: str = "OWNER") -> str:
-    """Usa o executor local com tools para !zpensa; cai no chat local puro se nada resolver."""
+    """Usa executor local com tools para !zpensa; cai no chat_local puro se nada resolver."""
     try:
         import bot_supervisor as supervisor
 
-        p = supervisor._normalizar(user_message)
+        p        = supervisor._normalizar(user_message)
         quer_web = any(x in p for x in ["busca", "pesquis", "internet", "google", "procur", "duckduck", "web"])
         quer_img = any(x in p for x in ["imagem", "foto", "png", "jpg", "figura", "ilustracao", "artwork", "arte"])
         if quer_web and not quer_img:
@@ -930,11 +829,8 @@ def chat_local_tools(user_id: str, user_message: str, usuario: str = "OWNER") ->
             )
             if raw_reply:
                 reply, feedback = _processar_tags(raw_reply, user_id, usuario)
-                if not reply:
-                    reply = feedback or "🌀"
-                elif feedback:
-                    reply = f"{feedback}\n{reply}".strip()
-                reply = _finalize_reply(reply, user_id)
+                reply = (feedback + "\n" + reply).strip() if feedback else reply
+                reply = _finalize_reply(reply or "🌀", user_id)
                 _add_to_history(user_id, "user", user_message)
                 _add_to_history(user_id, "assistant", reply)
                 return reply

@@ -79,6 +79,7 @@ GET  http://localhost:7331/history  -> historico
 - Use `rg` para buscas quando disponivel.
 - Se precisar escolher entre explicar e executar, execute e depois mostre o resultado.
 - Assuma a continuidade sem pedir contexto repetido se as memorias ja tiverem a resposta.
+- Roteamento de funcoes: conversa natural tem prioridade. `!comando` existe como fallback e pode ser usado internamente por LLMs como alias, mas OWNER nao deve precisar digitar `!` quando a intencao estiver clara.
 
 # Artefatos de código
 

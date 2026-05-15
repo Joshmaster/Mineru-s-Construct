@@ -66,6 +66,10 @@ GET  http://localhost:7331/history  → historico
 
 **Nao pergunte qual API usar. Nao apresente opcoes. Execute e mostre o resultado.**
 
+# Roteamento de funcoes
+
+Conversa natural tem prioridade. `!comando` existe como fallback e pode ser usado internamente por LLMs como alias, mas OWNER nao deve precisar digitar `!` quando a intencao estiver clara.
+
 # Artefatos de código
 
 - **TRIFORCE** = Claude Code, fila `claude_queue.json`.

@@ -46,6 +46,13 @@ Todos os agentes ficam em `~/Agents/`.
 - `link-bot/bot/main.py` limpa arquivos expirados ao conectar e depois a cada 1h
 - Baú (`~/.linkbot/bau`) é armazenamento manual; só limpa quando OWNER pedir
 
+### Roteamento natural de skills
+- Regra permanente: conversa natural tem prioridade sobre `!comando`.
+- `!comando` permanece como fallback e alias interno para LLMs; o usuário não deve precisar digitar `!` quando a intenção está clara.
+- Ordem esperada: frase natural clara → detecção determinística local → classificador LLM → `!comando` fallback → chat normal.
+- No grupo WhatsApp, OWNER pode acionar funções por frase natural sem `!`; outros usuários continuam precisando mencionar o bot ou usar comando para evitar ruído.
+- Música/mídia: YouTube e Spotify aceitam busca por texto; link é opcional quando a skill consegue resolver por busca.
+
 ### Comando `!Link acorde`
 - Detectado diretamente em `link_discord.py` (sem passar pelo LLM)
 - Supervisor executa: clear-history + delete msgs (OWNER + USER2) + reinicia bot

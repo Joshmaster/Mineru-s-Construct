@@ -86,6 +86,41 @@ def _fallback_reaction(category: str = "") -> str:
     return ""
 
 
+def _clean_natural_args(text: str, words: tuple[str, ...]) -> str:
+    """Remove palavras de ativação comuns, preservando o pedido útil."""
+    import re
+    cleaned = re.sub(r"^\s*(?:link|ei\s+link|ô\s+link|o\s+link)[,:\s-]*", "", text or "", flags=re.IGNORECASE)
+    cleaned = re.sub(r"!\w+", " ", cleaned)
+    for word in words:
+        cleaned = re.sub(rf"\b{re.escape(word)}\b", " ", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip(" :,-")
+    return cleaned or (text or "").strip()
+
+
+def _looks_like_media_request(text: str) -> bool:
+    norm = _norm_text(text)
+    action = any(w in norm for w in (
+        "toca", "tocar", "coloca", "baixa", "baixar", "manda", "enviar",
+        "procura", "busca", "buscar", "pega", "download",
+    ))
+    media = any(w in norm for w in (
+        "musica", "audio", "mp3", "video", "mp4", "youtube", "yutube",
+        "youtu", "!yt", " yt ", "spotify", "insta", "instagram", "reel", "twitter", "x.com",
+    ))
+    return action and media
+
+
+def _looks_like_contextual_music_request(text: str) -> bool:
+    norm = _norm_text(text)
+    return bool(norm) and any(x in norm for x in (
+        "outra famosa", "outro famoso", "mais famosa", "mais famoso",
+        "outra musica", "outra musica", "mais uma", "da mesma banda",
+        "desse artista", "dessa banda", "parecida com essa", "nesse estilo",
+        "mais outra", "outra dela", "outra dele", "outra deles",
+        "do mesmo artista", "do mesmo estilo", "mesmo genero", "mesmo genero",
+    ))
+
+
 def _cleanup_old_media() -> int:
     cutoff = time.time() - MEDIA_RETENTION_SECONDS
     removed = 0
@@ -192,6 +227,7 @@ class LinkBot:
         # JIDs reais por número (populado quando mensagem chega)
         self.user_jids: dict = {}
         self.last_media: dict = {}
+        self.sent_music_context: dict[str, dict] = {}
 
         # Bot identity
         self.my_jid = None
@@ -398,7 +434,7 @@ class LinkBot:
 
     def _ai_match_skill(self, text: str):
         skill_items = [
-            {"name": s.name, "description": s.description}
+            {"name": s.name, "description": f"{s.description}\nAliases: {', '.join(s.triggers[:8])}"}
             for s in self.router.list_enabled()
             if s.enabled
         ]
@@ -407,10 +443,89 @@ class LinkBot:
             return None
         if not intent.get("skill"):
             return False
-        skill = self.router.get_by_name(intent["skill"])
+        skill_name = str(intent["skill"]).strip()
+        args = str(intent.get("args", text) or "").strip()
+        skill = self.router.get_by_name(skill_name)
+        if skill is None and skill_name.startswith(("!", "[")):
+            command_match = self.router.match(f"{skill_name} {args}".strip())
+            if command_match:
+                return command_match
+        if skill is None and args.startswith(("!", "[")):
+            command_match = self.router.match(args)
+            if command_match:
+                return command_match
         if skill is None:
             return False
-        return skill, intent.get("args", text)
+        return skill, args
+
+    def _natural_match_skill(self, text: str):
+        """Atalhos determinísticos para pedidos naturais que não devem depender do LLM."""
+        norm = _norm_text(text)
+
+        if _looks_like_media_request(text):
+            skill = self.router.get_by_name("delirius_dl")
+            if skill:
+                args = _clean_natural_args(text, (
+                    "link", "toca", "tocar", "coloca", "baixa", "baixar", "manda",
+                    "enviar", "procura", "busca", "buscar", "pega", "download",
+                    "uma", "um", "a", "o", "pra", "para", "por favor",
+                ))
+                return skill, args
+
+        if any(w in norm for w in ("gera imagem", "gerar imagem", "cria imagem", "criar imagem", "desenha", "ilustra")):
+            skill = self.router.get_by_name("img_gerar")
+            if skill:
+                return skill, _clean_natural_args(text, ("gera", "gerar", "cria", "criar", "imagem", "desenha", "ilustra"))
+
+        if "gif" in norm:
+            skill = self.router.get_by_name("delirius_gif")
+            if skill:
+                return skill, _clean_natural_args(text, ("manda", "me manda", "busca", "procura", "gif", "de", "um", "uma"))
+
+        if any(w in norm for w in ("fala em voz", "le em voz", "lê em voz", "narra", "tts", "audio falando")):
+            skill = self.router.get_by_name("delirius_fala")
+            if skill:
+                return skill, _clean_natural_args(text, ("fala em voz alta", "fala", "ler", "le", "lê", "em voz alta", "narra", "tts"))
+
+        if any(w in norm for w in ("print do site", "screenshot do site", "captura do site", "tira print do site")):
+            skill = self.router.get_by_name("delirius_print")
+            if skill:
+                return skill, _clean_natural_args(text, ("tira", "print", "screenshot", "captura", "do site", "site"))
+
+        return None
+
+    def _safe_direct_match(self, match):
+        """Evita que conversa comum vire comando por trigger ampla demais."""
+        if not match:
+            return None
+        skill, rest = match
+        if skill.name in {"status", "identidade", "ping", "info"} and not (rest or "").strip():
+            return None
+        return match
+
+    def _remember_sent_music(self, message_id: str, context: str):
+        context = (context or "").strip()
+        if not message_id or not context:
+            return
+        self.sent_music_context[str(message_id)] = {"context": context[:500], "ts": time.time()}
+        # Limpeza simples para não acumular IDs antigos.
+        cutoff = time.time() - 6 * 60 * 60
+        for mid, item in list(self.sent_music_context.items()):
+            if float(item.get("ts") or 0) < cutoff:
+                self.sent_music_context.pop(mid, None)
+
+    def _quoted_music_context(self, quoted_id: str, quoted_text: str = "") -> str:
+        if quoted_id:
+            item = self.sent_music_context.get(str(quoted_id)) or {}
+            if item.get("context"):
+                return str(item["context"])
+        text = (quoted_text or "").strip()
+        if not text:
+            return ""
+        norm = _norm_text(text)
+        if "spotify:" in norm or "youtube:" in norm or "audio do youtube" in norm or text.startswith("🎵"):
+            return text[:500]
+        return ""
 
     # ── JID candidates ────────────────────────────────────────────────────────
 
@@ -740,6 +855,7 @@ class LinkBot:
         is_group = bool(msg.get("isGroup"))
         text = msg.get("text", "")
         quoted_id = msg.get("quotedMsgId", "")
+        quoted_text = msg.get("quotedText", "")
         pushname = msg.get("pushName", "")
         message_id = msg.get("msgId", "")
 
@@ -776,8 +892,16 @@ class LinkBot:
                     pass
             mentioned = self._is_bot_mentioned(msg)
             my_user = getattr(self.my_jid, "User", "") if self.my_jid else ""
-            log.info(f"[grupo] text={repr((text or '')[:60])} mentioned={mentioned} my_user={my_user}")
-            if not (text or "").strip().startswith("!") and not mentioned:
+            quoted_music_context = self._quoted_music_context(quoted_id, quoted_text)
+            owner_natural = (
+                self._is_admin(sender_number, chat_number, sender_jid_str, chat_jid_str)
+                and (
+                    self._natural_match_skill(text or "") is not None
+                    or (quoted_music_context and _looks_like_contextual_music_request(text or ""))
+                )
+            )
+            log.info(f"[grupo] text={repr((text or '')[:60])} mentioned={mentioned} owner_natural={owner_natural} my_user={my_user}")
+            if not (text or "").strip().startswith("!") and not mentioned and not owner_natural:
                 return
 
         # Allow list (só DM)
@@ -862,6 +986,10 @@ class LinkBot:
             log.info(f"📤 [id={sender_number} phone/chat={chat_number}] {reply}")
             return
 
+        # quoted_music_context: já calculado no bloco de grupo acima; recalcula aqui apenas em DM
+        if not is_group:
+            quoted_music_context = self._quoted_music_context(quoted_id, quoted_text)
+
         # ── Clarificação pendente ────────────────────────────────────────────────
         _now_ts = time.time()
         for _k in [k for k, v in self._pending_clarification.items() if _now_ts - v[2] > 600]:
@@ -898,6 +1026,10 @@ class LinkBot:
         # URL auto-detect → delirius_dl (YouTube, Spotify, Instagram, Twitter/X)
         if not locals().get('match'):
             match = None
+        if match is None and quoted_music_context and _looks_like_contextual_music_request(text):
+            _dl_skill = self.router.get_by_name("delirius_dl")
+            if _dl_skill:
+                match = (_dl_skill, f"{text}\nContexto musical anterior: {quoted_music_context}")
         try:
             if match is None:
                 from bot.skills.delirius_dl import detect_url as _detect_dl_url
@@ -912,15 +1044,27 @@ class LinkBot:
         # Match skills (se URL auto-detect não achou nada)
         stripped = text.strip()
         if match is None:
+            natural_match = self._natural_match_skill(text)
             direct_router = self.router.match(text)
-            if stripped.startswith(("!", "[")) or (direct_router and direct_router[0].name in {"ajuda"}):
+            if natural_match:
+                match = natural_match
+            elif stripped.startswith(("!", "[")) or (direct_router and direct_router[0].name in {"ajuda"}):
                 match = direct_router
             else:
+                # !comando no meio da frase (ex: "chama a skill !spot zelda")
+                import re as _re
+                _inline = _re.search(r'!\w+', stripped)
+                if _inline:
+                    _from_cmd = stripped[_inline.start():]
+                    _inline_match = self.router.match(_from_cmd)
+                    if _inline_match:
+                        match = _inline_match
+            if match is None:
                 ai_match = await asyncio.get_event_loop().run_in_executor(None, self._ai_match_skill, text)
                 if ai_match is False:
-                    match = None
+                    match = self._safe_direct_match(direct_router)
                 elif ai_match is None:
-                    match = direct_router
+                    match = self._safe_direct_match(direct_router)
                 elif ai_match and not (ai_match[1] or "").strip():
                     # skill detectada mas args vazio → pede clarificação
                     _sk_name = ai_match[0].name
@@ -941,6 +1085,7 @@ class LinkBot:
                     raw_text=text, args_text=text,
                     sender_jid=sender_jid, chat_jid=chat_jid,
                     is_group=is_group, message_id=message_id,
+                    quoted_msg_id=quoted_id, quoted_text=quoted_text,
                     my_jid=self.my_jid, pushname=pushname,
                     client=self.client,
                 )
@@ -987,6 +1132,8 @@ class LinkBot:
             chat_jid=chat_jid,
             is_group=is_group,
             message_id=message_id,
+            quoted_msg_id=quoted_id,
+            quoted_text=quoted_text,
             my_jid=self.my_jid,
             pushname=pushname,
             has_media=has_media,
@@ -996,6 +1143,7 @@ class LinkBot:
             storage=self.storage,
             config=self.config,
             router=self.router,
+            sent_music_callback=self._remember_sent_music,
         )
 
         nome_usuario = access_ctl.display_name(sender_number, chat_number, sender_jid_str, chat_jid_str, pushname=pushname)

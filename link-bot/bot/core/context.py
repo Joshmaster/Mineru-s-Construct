@@ -29,6 +29,8 @@ class MessageContext:
 
     # Identidade
     message_id: str = ""    # ID da mensagem (pra reagir)
+    quoted_msg_id: str = "" # ID da mensagem citada/respondida
+    quoted_text: str = ""   # texto/legenda da mensagem citada, quando o bridge fornecer
     my_jid: Any = None      # JID do próprio bot
     pushname: str = ""      # Nome de exibição do remetente
 
@@ -42,6 +44,7 @@ class MessageContext:
     storage: Any = None             # instância de Storage
     config: Any = None              # dict de config
     router: Any = None              # pra skill /ajuda listar comandos
+    sent_music_callback: Any = None # callback opcional para registrar contexto musical enviado
 
     def _sender_str(self) -> str:
         jid = self.sender_jid
@@ -138,6 +141,14 @@ class MessageContext:
         except Exception as e:
             print(f"[send_audio_ptt err] {e}")
 
+    def remember_sent_music(self, message_id: str, context: str):
+        if not message_id or not context or not self.sent_music_callback:
+            return
+        try:
+            self.sent_music_callback(str(message_id), str(context))
+        except Exception:
+            pass
+
     async def reply_media(self, file_path: str, caption: str = "",
                            as_sticker: bool = False):
         """Envia mídia detectando o tipo, citando a mensagem original."""
@@ -156,9 +167,11 @@ class MessageContext:
                 if caption:
                     await self.client.send_message(self.chat_jid, caption)
             elif ext in ("mp3", "ogg", "m4a", "wav", "aac", "opus"):
-                await self.client.send_audio(self.chat_jid, file_path, ptt=False, quoted_id=qid, quoted_sender=qsender)
+                resp = await self.client.send_audio(self.chat_jid, file_path, ptt=False, quoted_id=qid, quoted_sender=qsender)
+                self.remember_sent_music(getattr(resp, "ID", "") or getattr(resp, "ServerID", ""), caption)
                 if caption:
-                    await self.client.send_message(self.chat_jid, caption)
+                    text_resp = await self.client.send_message(self.chat_jid, caption)
+                    self.remember_sent_music(getattr(text_resp, "ID", "") or getattr(text_resp, "ServerID", ""), caption)
             else:
                 await self.send_image(file_path, caption)
         except Exception as e:

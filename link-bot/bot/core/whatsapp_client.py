@@ -123,6 +123,7 @@ class WhatsAppClient:
             payload["quoted_sender"] = quoted_sender
         resp = await http.post("/send/audio", json=payload)
         resp.raise_for_status()
+        return _MsgResp(resp.json().get("id", ""))
 
     async def send_sticker(self, jid, path: str, quoted_id: str = "", quoted_sender: str = ""):
         http = self._client()

@@ -103,9 +103,16 @@ async function connectToWhatsApp() {
     // JID do Meta AI — mensagens fromMe=true ou type!=notify precisam ser entregues
     const META_AI_JID = process.env.META_AI_JID || "718584497008509@s.whatsapp.net";
 
+    // Timestamp da última conexão — usado para recuperar mensagens do backfill recente
+    let connectedAt = 0;
+    sock.ev.on("connection.update", ({ connection }) => {
+        if (connection === "open") connectedAt = Date.now();
+    });
+
     sock.ev.on("messages.upsert", async ({ messages, type }) => {
         console.log(`messages.upsert type=${type} count=${messages.length}`);
 
+        const now = Date.now();
         for (const msg of messages) {
             const jid = msg.key.remoteJid || "";
             const isMetaAI = jid === META_AI_JID || jid.startsWith("718584497008509");
@@ -118,11 +125,26 @@ async function connectToWhatsApp() {
                 continue;
             }
 
-            if (type !== "notify") continue;
             if (msg.key.fromMe) continue;
             if (!msg.message) continue;
 
-            await deliverMessage(msg);
+            if (type === "notify") {
+                await deliverMessage(msg);
+                continue;
+            }
+
+            // type="append" = backfill pós-reconexão; entrega apenas se a mensagem
+            // chegou nos últimos 3 minutos E a reconexão foi recente (últimos 30s)
+            if (type === "append") {
+                const msgTs = (msg.messageTimestamp || 0) * 1000;
+                const isRecent = msgTs > 0 && (now - msgTs) < 3 * 60 * 1000;
+                const freshConn = connectedAt > 0 && (now - connectedAt) < 30 * 1000;
+                if (isRecent && freshConn) {
+                    console.log(`append recente recuperado: jid=${jid} age=${Math.round((now - msgTs) / 1000)}s`);
+                    await deliverMessage(msg);
+                }
+                continue;
+            }
         }
     });
 }
@@ -170,15 +192,35 @@ async function deliverMessage(msg) {
         messageType = "listResponse";
     }
 
+    function quotedTextFrom(qmsg) {
+        if (!qmsg) return "";
+        if (qmsg.conversation) return qmsg.conversation || "";
+        if (qmsg.extendedTextMessage) return qmsg.extendedTextMessage.text || "";
+        if (qmsg.imageMessage) return qmsg.imageMessage.caption || "";
+        if (qmsg.videoMessage) return qmsg.videoMessage.caption || "";
+        if (qmsg.documentMessage) return qmsg.documentMessage.caption || qmsg.documentMessage.fileName || "";
+        if (qmsg.audioMessage) return "[audio]";
+        if (qmsg.stickerMessage) return "[sticker]";
+        if (qmsg.buttonsResponseMessage) return qmsg.buttonsResponseMessage.selectedDisplayText || "";
+        if (qmsg.listResponseMessage) return qmsg.listResponseMessage.title || "";
+        return "";
+    }
+
     // ID da mensagem respondida (quoted)
     let quotedMsgId = "";
+    let quotedText = "";
+    let quotedParticipant = "";
     const ctx = (
         msgContent.extendedTextMessage?.contextInfo ||
         msgContent.imageMessage?.contextInfo ||
         msgContent.videoMessage?.contextInfo ||
-        msgContent.audioMessage?.contextInfo
+        msgContent.audioMessage?.contextInfo ||
+        msgContent.documentMessage?.contextInfo ||
+        msgContent.stickerMessage?.contextInfo
     );
     if (ctx?.stanzaId) quotedMsgId = ctx.stanzaId;
+    if (ctx?.participant) quotedParticipant = ctx.participant;
+    if (ctx?.quotedMessage) quotedText = quotedTextFrom(ctx.quotedMessage);
 
     const payload = {
         event: "message",
@@ -191,6 +233,8 @@ async function deliverMessage(msg) {
         messageType,
         media,
         quotedMsgId,
+        quotedText,
+        quotedParticipant,
         rawKey: msg.key,
         rawMessage: msg.message,
     };

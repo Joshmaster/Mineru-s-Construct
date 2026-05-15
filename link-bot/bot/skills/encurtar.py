@@ -50,7 +50,7 @@ async def handle(ctx: MessageContext):
 
 SKILL = Skill(
     name="encurtar",
-    description="*encurta <url>* — pergaminho compactado",
+    description="Encurta uma URL longa — use quando pedir pra encurtar, compactar ou gerar link curto de uma URL.",
     triggers=["!url", "encurta", "encurtar", "shorten", "url curta"],
     handler=handle,
     category="util",
