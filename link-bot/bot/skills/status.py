@@ -32,10 +32,9 @@ async def handle(ctx: MessageContext):
     sender = str(ctx.sender_jid).split("@")[0] if ctx.sender_jid else "?"
     lembretes = ctx.storage.reminder_list(sender)
     todos_abertos = ctx.storage.todo_list(sender, include_done=False)
-    koroks = ctx.storage.counter_get(sender, "koroks")
 
     skills_total = len(ctx.router.list_enabled())
-    modo = ctx.config.get("MODE", "TOTK puro (sem LLM)")
+    modo = ctx.config.get("MODE", "Hyrule")
 
     msg = (
         f"🌀 *Status do Reino* 🌀\n"
@@ -47,7 +46,6 @@ async def handle(ctx: MessageContext):
         f"─────────────────\n"
         f"⏰ Pergaminhos ativos: {len(lembretes)}\n"
         f"📝 TODOs abertos: {len(todos_abertos)}\n"
-        f"🌳 Korok seeds: {koroks}\n"
         f"\nTudo em ordem em Hyrule, parceiro. 🔱"
     )
     await ctx.reply(msg)

@@ -19,7 +19,7 @@ link-bot/
 │   ├── core/
 │   │   ├── router.py            # matcher de palavra-chave natural
 │   │   ├── context.py           # contexto passado pras skills
-│   │   ├── storage.py           # SQLite (todos, notas, lembretes, koroks)
+│   │   ├── storage.py           # SQLite (todos, notas, lembretes)
 │   │   ├── timeparse.py         # parser de tempo natural PT-BR
 │   │   ├── sticker.py           # FFmpeg + metadados WhatsApp
 │   │   └── scheduler.py         # loop de lembretes async
@@ -44,9 +44,6 @@ link-bot/
 │       ├── aleatorio.py         # dados/moeda/sortear/senha (4 skills)
 │       ├── todo.py              # lista de tarefas (4 skills)
 │       ├── nota.py              # anotações com tags (3 skills)
-│       ├── citacao.py           # 20 frases TOTK aleatórias
-│       ├── korok.py             # gamificação Korok seeds (2 skills)
-│       ├── pc.py                # controle PC (4 skills, gated por flag)
 │       └── manage.py            # ping/info/reload (3 skills)
 ├── config/
 │   └── config.example.json
@@ -207,14 +204,6 @@ No celular com **WhatsApp Business**:
 - `cara ou coroa`
 - `sorteia entre A, B, C`
 - `gera senha 16` — secrets
-
-### 🌳 ESPÍRITO DE HYRULE
-- `frase épica` / `citação` — 20 frases TOTK
-- `achei um korok!` — gamificação
-- `quantos koroks tenho?`
-
-### 💻 ZONAI CONSTRUCTS (desativado por padrão)
-- `abre Spotify`, `cpu`, `ram`, `volume 50`, `tira print`
 
 ### ⚙️ MANUTENÇÃO
 - `ping`, `info técnica`, `reload`

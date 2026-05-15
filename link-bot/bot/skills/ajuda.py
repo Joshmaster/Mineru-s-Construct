@@ -149,12 +149,6 @@ async def handle(ctx: MessageContext):
                 "`!majora <pedido>`",
                 "`!mastersword <pedido>`",
             ]),
-            ("🖥️", "*PC*", [
-                "abre <programa>",
-                "volume 50",
-                "tira print",
-                "cpu · ram · info técnica",
-            ]),
             ("🧭", "*SISTEMA*", [
                 "`!dono`",
                 "ping · status",
@@ -187,10 +181,6 @@ async def handle(ctx: MessageContext):
                 "adiciona <missão> na lista",
                 "minhas tarefas · feito 2 · remove tarefa 2",
                 "anota: <texto> · minhas anotações",
-            ]),
-            ("🌿", "*HYRULE*", [
-                "achei um korok! · quantos koroks",
-                "frase épica · citação aleatória",
             ]),
         ]
         if owner:
