@@ -58,8 +58,6 @@ FILES_DIR     = os.path.join(BASE_DIR, "files")
 HISTORY_DIR   = os.path.join(BASE_DIR, "history")
 REMINDERS_FILE = os.path.join(BASE_DIR, "reminders.json")
 RECEIVED_DIR  = os.path.join(BASE_DIR, "received")   # anexos recebidos do Discord, baixados imediatamente
-RECEIVED_META = os.path.join(BASE_DIR, "received_files.json")   # metadados persistidos
-USER_CTX_FILE = os.path.join(BASE_DIR, "user_context.json")     # contexto por usuário
 PERSONA_FILE  = os.path.join(BASE_DIR, "..", "OPENCODE", "roaming", "LINK_PERSONA.md")
 BANNER_FILE   = os.path.join(BASE_DIR, "..", "assets", "banner.jpg")
 os.makedirs(FILES_DIR, exist_ok=True)
@@ -71,9 +69,6 @@ buffer = []  # ultimas 100 mensagens em memoria
 # Historico de conversa por usuario (para contexto)
 historico_ia = {}
 
-# ── Contexto persistente por usuário ─────────────────────────────────────────
-# Estrutura: {autor: {last_file: {local_path, nome}, last_pedido: str, last_action: str}}
-_user_ctx: dict[str, dict] = {}
 
 LOCAL_TZ = ZoneInfo("America/Sao_Paulo")
 _reminders_lock = asyncio.Lock()
@@ -83,6 +78,24 @@ _reminder_task: asyncio.Task | None = None
 _pending_ack: dict[int, dict] = {}
 _pending_ack_lock = asyncio.Lock()
 REMINDER_RETRY_SECS = 15 * 60
+
+_pending_clarification: dict[str, tuple[str, str, float, int]] = {}  # autor → (skill, msg_original, ts, retries)
+_CLARIFICATION_TTL = 600.0    # 10 min sem resposta → descarta
+_CLARIFICATION_MAX_RETRIES = 2  # após 2 tentativas sem resolver → cai no chat
+
+_SKILL_PROMPTS: dict[str, str] = {
+    "spot":   "Sugira uma música aleatória e boa: artista - título.",
+    "imagem": "Sugira um tema visual interessante para buscar uma imagem.",
+}
+_SKILL_FALLBACKS: dict[str, str] = {
+    "spot":   "Zelda - Main Theme",
+    "imagem": "paisagem de Hyrule",
+}
+_CODE_AGENTS: dict[str, tuple[str, str, str]] = {
+    "triforce":    ("✨ acionando triforce...",    "Claude",   "TRIFORCE-PEDIDO"),
+    "majora":      ("🌑 acionando majora...",      "Codex",    "MAJORA-PEDIDO"),
+    "mastersword": ("🗡️ acionando mastersword...", "OpenCode", "MASTERSWORD-PEDIDO"),
+}
 
 _sys.path.insert(0, os.path.join(os.path.dirname(BASE_DIR), "link-bot"))
 try:
@@ -111,31 +124,17 @@ try:
 except Exception:
     delirius_dl = None
 
+try:
+    from bot.core import llm as _llm
+except Exception:
+    _llm = None
 
-def _carregar_ctx():
-    global _user_ctx
-    if os.path.exists(USER_CTX_FILE):
-        try:
-            _user_ctx = json.load(open(USER_CTX_FILE, encoding="utf-8"))
-        except Exception:
-            _user_ctx = {}
+try:
+    import bot_supervisor as _bot_supervisor
+except Exception:
+    _bot_supervisor = None
 
-def _salvar_ctx():
-    try:
-        json.dump(_user_ctx, open(USER_CTX_FILE, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-    except Exception:
-        pass
 
-def _set_ctx(autor: str, **kwargs):
-    if autor not in _user_ctx:
-        _user_ctx[autor] = {}
-    _user_ctx[autor].update(kwargs)
-    _salvar_ctx()
-
-def _get_ctx(autor: str) -> dict:
-    return _user_ctx.get(autor, {})
-
-_carregar_ctx()  # carrega ao iniciar
 
 
 async def _safe_react(message, emoji: str):
@@ -466,36 +465,6 @@ async def _loop_lembretes_discord():
         await asyncio.sleep(15)
 
 
-# ── Metadados de arquivos recebidos ──────────────────────────────────────────
-def _registrar_recebido(autor: str, nome: str, url: str):
-    """Salva metadado (URL) do arquivo recebido — download só acontece quando pedido."""
-    dados = {}
-    if os.path.exists(RECEIVED_META):
-        try:
-            dados = json.load(open(RECEIVED_META, encoding="utf-8"))
-        except Exception:
-            pass
-    if autor not in dados:
-        dados[autor] = []
-    dados[autor].append({
-        "nome": nome,
-        "url":  url,
-        "ts":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-    })
-    dados[autor] = dados[autor][-50:]  # mantém últimos 50 por usuário
-    json.dump(dados, open(RECEIVED_META, "w", encoding="utf-8"), ensure_ascii=False, indent=2)
-
-def _ultimo_arquivo_recebido(autor: str) -> dict | None:
-    """Retorna metadado do último arquivo recebido (JSON persistido — sobrevive restart)."""
-    if os.path.exists(RECEIVED_META):
-        try:
-            dados = json.load(open(RECEIVED_META, encoding="utf-8"))
-            arquivos = dados.get(autor, [])
-            if arquivos:
-                return arquivos[-1]  # {"nome", "url", "ts"}
-        except Exception:
-            pass
-    return None
 
 
 def _history_file(autor: str) -> str:
@@ -543,41 +512,6 @@ def carregar_usuarios_extra() -> dict:
         return json.load(f)
 
 
-from pathlib import Path as _Path
-_NAV_STATE_FILE = _Path(BASE_DIR) / ".." / "nav_state.json"
-
-def _carregar_nav_state(autor: str) -> str:
-    """Retorna string com pasta atual + conteúdo real para injetar no prompt."""
-    try:
-        data = json.loads(_NAV_STATE_FILE.read_text(encoding="utf-8"))
-        entrada = data.get(autor, None)
-        if not entrada:
-            return ""
-        # Suporte ao formato antigo (string) e novo (dict)
-        if isinstance(entrada, str):
-            pasta = entrada
-            itens: list[str] = []
-        else:
-            pasta = entrada.get("pasta", "")
-            itens = entrada.get("itens", [])
-        if not pasta:
-            return ""
-        bloco = f"\n\n---\n[CONTEXTO DE NAVEGACAO NO PC]\nPasta atual: {pasta}\n"
-        if itens:
-            bloco += "Conteudo (nomes exatos como aparecem no PC):\n"
-            bloco += "\n".join(f"  - {nome}" for nome in itens)
-            bloco += "\n"
-        bloco += (
-            "REGRA CRITICA: Se o usuario mencionar qualquer nome que aparece na lista acima, "
-            "use o nome EXATAMENTE como esta listado, sem traduzir, corrigir ortografia ou interpretar. "
-            "Trate como pedido de navegacao/envio de arquivo e use [SHEIKAH_SLATE: <acao> <nome_exato>]."
-        )
-        return bloco
-    except Exception:
-        pass
-    return ""
-
-
 def carregar_persona(ultima_resposta: str = "", autor: str = "") -> str:
     base = "Voce e Link. Responda em portugues do Brasil de forma natural e descontraida."
     try:
@@ -587,8 +521,6 @@ def carregar_persona(ultima_resposta: str = "", autor: str = "") -> str:
         pass
     if ultima_resposta:
         base += f"\n\n---\nSua ultima resposta foi: \"{ultima_resposta}\"\nNAO comece esta resposta da mesma forma."
-    if autor:
-        base += _carregar_nav_state(autor)
     return base
 
 
@@ -670,7 +602,6 @@ def _menu_texto(secao: str = "principal", owner: bool = False) -> str:
             "`triforce <pedido>`\n"
             "`majora <pedido>`\n"
             "`mastersword <pedido>`\n"
-            "`!link acorda`\n"
             "`!Z <pedido local rápido>`\n"
             "`!zpensa <pedido local com tools>`"
         )
@@ -932,6 +863,86 @@ async def responder_com_ia_local_tools(autor: str, mensagem: str) -> str:
 
     return await responder_com_ia_local(autor, mensagem, think=True)
 
+async def _link_says(prompt: str, max_tokens: int = 80) -> str:
+    if _llm is None:
+        return ""
+    try:
+        msgs = [
+            {"role": "system", "content": carregar_persona_local()},
+            {"role": "user", "content": f"[interno: {prompt}]"},
+        ]
+        raw = await asyncio.get_running_loop().run_in_executor(
+            None, _llm._call_openrouter, msgs, max_tokens, 0.85, 8
+        )
+        return sanitizar((raw or "").strip())
+    except Exception as e:
+        print(f"[link_says] {e}", flush=True)
+    return ""
+
+
+async def _gerar_pergunta_skill(skill: str, msg_original: str) -> str:
+    if _llm is None:
+        return ""
+    try:
+        raw = await asyncio.get_running_loop().run_in_executor(
+            None, _llm.gerar_pergunta_skill, skill, msg_original, carregar_persona_local()
+        )
+        return sanitizar(raw) if raw else ""
+    except Exception as e:
+        print(f"[gerar_pergunta_skill] {e}", flush=True)
+    return ""
+
+
+async def _resolver_pendente(skill: str, resposta: str) -> tuple[str, str]:
+    if _llm is None:
+        return "use", resposta
+    try:
+        return await asyncio.get_running_loop().run_in_executor(
+            None, _llm.resolver_pendente, skill, resposta
+        )
+    except Exception as e:
+        print(f"[resolver_pendente] {e}", flush=True)
+    return "use", resposta
+
+
+async def _ia_escolher_e_executar(message: discord.Message, autor: str, skill: str):
+    args = ""
+    if _llm:
+        try:
+            args = await asyncio.get_running_loop().run_in_executor(
+                None, _llm.ia_escolher_args, skill
+            )
+        except Exception as e:
+            print(f"[ia_escolher] {e}", flush=True)
+    args = args or _SKILL_FALLBACKS.get(skill, "")
+    anuncio = await _link_says(f"você escolheu '{args}' para o usuário. Diz isso de forma curta e casual") or f"vai de {args}"
+    await message.reply(anuncio)
+    registrar("OUT", "Link", autor, anuncio)
+    await _executar_skill_discord(message, autor, skill, args)
+
+
+async def _executar_skill_discord(message: discord.Message, autor: str, skill: str, args: str):
+    if skill == "spot":
+        async with message.channel.typing():
+            await _discord_spot(message, autor, args)
+    elif skill == "imagem":
+        if _bot_supervisor is None:
+            return
+        async with message.channel.typing():
+            _resp_img = await asyncio.get_running_loop().run_in_executor(
+                None, _bot_supervisor.baixar_imagem_e_enviar, args, autor
+            )
+        _resp_img = sanitizar(_resp_img or "")
+        if _resp_img:
+            await message.reply(_resp_img)
+            registrar("OUT", "Link", autor, _resp_img)
+    elif skill in _CODE_AGENTS:
+        msg_out, destino, tag = _CODE_AGENTS[skill]
+        await message.reply(msg_out)
+        registrar("OUT", "Link", autor, msg_out)
+        registrar("SYS", "Bot", destino, f"[{tag}] {args}")
+
+
 intents = discord.Intents.default()
 intents.message_content = True
 intents.dm_messages = True
@@ -941,7 +952,6 @@ intents.reactions = True
 client = discord.Client(intents=intents)
 
 
-_TAG_RE      = re.compile(r'\[SHEIKAH_SLATE[^\]]*\]', re.IGNORECASE)
 _TRIFORCE_RE = re.compile(r'\[TRIFORCE:\s*(.*?)\]', re.IGNORECASE | re.DOTALL)
 _MAJORA_RE   = re.compile(r'\[MAJORA:\s*(.*?)\]', re.IGNORECASE | re.DOTALL)
 _MASTERSWORD_RE = re.compile(r'\[MASTERSWORD:\s*(.*?)\]', re.IGNORECASE | re.DOTALL)
@@ -949,31 +959,7 @@ _THINK_RE = re.compile(r'<think>.*?</think>', re.DOTALL | re.IGNORECASE)
 
 # Prefixos que indicam raciocínio interno vazado (modelos de reasoning)
 
-def _pedido_sheikah_executavel(pedido: str) -> bool:
-    """Evita executar placeholders ou respostas conversacionais como tarefa do PC."""
-    p = (pedido or "").strip()
-    if not p:
-        return False
-    p_norm = p.lower()
-    if any(x in p_norm for x in ["{url}", "{nome}", "{filename}", "{caminho}", "{usuario}"]):
-        return False
-    if re.search(r"\{[^{}]+\}", p):
-        return False
-    noops = [
-        "aguarda", "aguarde", "espera", "espere", "não mande", "nao mande",
-        "deixa pra la", "deixa pra lá", "sem ação", "sem acao",
-        "instruções sobre o arquivo", "instrucoes sobre o arquivo",
-    ]
-    if any(x in p_norm for x in noops):
-        return False
-    acoes = [
-        "salva", "salvar", "guardar", "baixar", "baixa", "download",
-        "enviar", "envia", "manda", "apagar", "apaga", "deletar", "deleta",
-        "ler", "le ", "listar", "lista", "abrir", "abre", "fechar", "fecha",
-        "executar", "executa", "rodar", "roda", "escrever", "escreve",
-        "mover", "move", "copiar", "copia",
-    ]
-    return any(a in p_norm for a in acoes)
+
 _REASON_STARTS = (
     "okay,", "ok,", "ok!", "let me", "first,", "first,", "looking at",
     "i need to", "wait,", "alright,", "so,", "now,", "hmm", "well,",
@@ -985,7 +971,7 @@ _REASON_STARTS = (
 def sanitizar(texto: str) -> str:
     """Remove tags internas, think blocks e chain-of-thought vazado."""
     limpo = _THINK_RE.sub('', texto)        # <think>...</think>
-    limpo = _TAG_RE.sub('', limpo)          # [SHEIKAH_SLATE: ...]
+    limpo = re.sub(r'\[SHEIKAH_SLATE[^\]]*\]', '', limpo, flags=re.IGNORECASE)
     limpo = _TRIFORCE_RE.sub('', limpo)     # [TRIFORCE: ...]
     limpo = _MAJORA_RE.sub('', limpo)       # [MAJORA: ...]
     limpo = _MASTERSWORD_RE.sub('', limpo)  # [MASTERSWORD: ...]
@@ -1131,8 +1117,6 @@ async def on_message(message):
             "ts":   datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
         anexos_meta.append(meta)
-        _registrar_recebido(autor, att.filename, att.url)  # persiste só URL
-        print(f"[RECEBIDO] {autor}: {att.filename} (metadado salvo)", flush=True)
 
     registrar("IN", autor, "Link", message.content,
               [{"nome": a["nome"], "url": a["url"]} for a in anexos_meta])
@@ -1144,15 +1128,46 @@ async def on_message(message):
     def _norm(t): return ''.join(c for c in _ud.normalize('NFD', t.lower()) if _ud.category(c) != 'Mn')
     _p_norm = _norm(message.content or "")
 
-    if re.search(r'!link\s+acord', _p_norm):
-        await message.reply("acordando tudo... um segundo")
-        registrar("OUT", "Link", autor, "acordando tudo... um segundo")
-        registrar("SYS", "Bot", "Claude", "[SHEIKAH_SLATE-PEDIDO] acorde sistema completo")
-        return
-
     # ── TRIFORCE: escalação direta, sem passar pelo LLM ──────────────────────
     _txt = (message.content or "").strip()
     _txt_norm = _p_norm.strip()
+
+    # ── Clarificação pendente ─────────────────────────────────────────────────
+    _now_ts = datetime.now(LOCAL_TZ).timestamp()
+    # evict entradas expiradas
+    for _k in [k for k, v in _pending_clarification.items() if _now_ts - v[2] > _CLARIFICATION_TTL]:  # noqa: E501
+        del _pending_clarification[_k]
+
+    if autor in _pending_clarification:
+        _skill_pend, _msg_orig, _, _retries = _pending_clarification.pop(autor)
+        if _retries >= _CLARIFICATION_MAX_RETRIES:
+            pass  # desistiu — cai no fluxo normal de chat abaixo
+        else:
+            async with message.channel.typing():
+                _action, _args_pend = await _resolver_pendente(_skill_pend, (message.content or "").strip())
+            if _action == "choose":
+                await _ia_escolher_e_executar(message, autor, _skill_pend)
+                return
+            elif _action == "cannot_choose":
+                _resp_neg = await _link_says(
+                    "o usuário quer que você escolha a tarefa de código, mas você não pode sem saber o que ele quer. "
+                    "Explica de forma natural e curta que precisa de mais detalhes"
+                )
+                if _resp_neg:
+                    await message.reply(_resp_neg)
+                    registrar("OUT", "Link", autor, _resp_neg)
+                _pending_clarification[autor] = (_skill_pend, _msg_orig, datetime.now(LOCAL_TZ).timestamp(), _retries + 1)
+                return
+            elif _args_pend:
+                await _executar_skill_discord(message, autor, _skill_pend, _args_pend)
+                return
+            # args vazio após interpretação → re-pergunta mais uma vez
+            _nova_pergunta = await _gerar_pergunta_skill(_skill_pend, _msg_orig)
+            if _nova_pergunta:
+                await message.reply(_nova_pergunta)
+                registrar("OUT", "Link", autor, _nova_pergunta)
+                _pending_clarification[autor] = (_skill_pend, _msg_orig, datetime.now(LOCAL_TZ).timestamp(), _retries + 1)
+                return
 
     if _txt_norm in {"menu", "ajuda", "help", "comandos", "?"}:
         await enviar_menu_discord(message)
@@ -1199,21 +1214,6 @@ async def on_message(message):
             await _discord_spot(message, autor, pedido_spot)
         return
 
-    # Pedido natural de imagem/foto: baixa e envia arquivo direto, sem depender da IA.
-    _quer_imagem = any(x in _txt_norm for x in ["imagem", "foto", "png", "jpg", "jpeg", "figura", "ilustracao", "artwork", "arte"])
-    _acao_imagem = any(x in _txt_norm for x in ["busca", "pesquis", "procur", "acha", "encontra", "pega", "manda", "envia", "baixa", "download", "web", "internet", "google"])
-    if _quer_imagem and _acao_imagem:
-        async with message.channel.typing():
-            import bot_supervisor as supervisor
-            resposta_img = await asyncio.get_running_loop().run_in_executor(
-                None, supervisor.baixar_imagem_e_enviar, _txt, autor
-            )
-        resposta_img = sanitizar(resposta_img)
-        if resposta_img:
-            await message.reply(resposta_img)
-            registrar("OUT", "Link", autor, resposta_img)
-        return
-
     if re.match(r'^triforce\b', _txt_norm):
         # Extrai o pedido (tudo depois de "TRIFORCE")
         pedido_tf = re.sub(r'^triforce\s*', '', _txt, flags=re.IGNORECASE).strip()
@@ -1248,60 +1248,6 @@ async def on_message(message):
         registrar("SYS", "Bot", "OpenCode", f"[MASTERSWORD-PEDIDO] {pedido_ms}")
         return
 
-    # Atualiza contexto: último arquivo recebido (apenas metadado)
-    if anexos_meta:
-        _set_ctx(autor, last_file={
-            "nome": anexos_meta[-1]["nome"],
-            "url":  anexos_meta[-1]["url"],
-        })
-
-    # ── Retry — re-executa último pedido de arquivo (keyword confiável) ──────
-    _kw_retry = ["tenta novamente", "tenta de novo", "de novo", "again", "retry",
-                 "nao funcionou", "não funcionou", "falhou", "faz novamente",
-                 "faça novamente", "refaz", "refaça", "novamente", "repete"]
-    quer_retry = any(kw in p_lower for kw in _kw_retry)
-
-    if quer_retry and not anexos_meta:
-        from datetime import datetime as _dt
-        ts = _dt.now().strftime('%H%M%S')
-        arquivos_recentes = []
-        if os.path.exists(RECEIVED_META):
-            try:
-                dados_meta = json.load(open(RECEIVED_META, encoding="utf-8"))
-                arquivos_recentes = dados_meta.get(autor, [])[-3:]
-            except Exception:
-                pass
-        if arquivos_recentes:
-            for a in arquivos_recentes:
-                registrar("SYS", "Bot", "Claude",
-                          f"[SHEIKAH_SLATE-PEDIDO] salva no desktop URL:{a['url']} nome:{a['nome']} [retry:{ts}]")
-            await message.reply("tentando de novo...")
-            registrar("OUT", "Link", autor, "tentando de novo...")
-            return
-        ultimo_pedido = _get_ctx(autor).get("last_pedido")
-        if ultimo_pedido:
-            registrar("SYS", "Bot", "Claude",
-                      f"[SHEIKAH_SLATE-PEDIDO] {ultimo_pedido} [retry:{ts}]")
-            await message.reply("tentando de novo...")
-            registrar("OUT", "Link", autor, "tentando de novo...")
-            return
-
-    # ── PC → Discord (frase explícita — não ambígua) ──────────────────────────
-    _kw_enviar = ["pro discord", "para o discord", "no discord",
-                  "manda pro discord", "envia pro discord", "passa pro discord"]
-    quer_enviar = any(kw in p_lower for kw in _kw_enviar) and not anexos_meta
-    if quer_enviar:
-        # Extrai nome do arquivo do pedido (se mencionado)
-        nome_match = re.search(
-            r'(?:o arquivo|o|a foto|a imagem|o print|arquivo)\s+([\w\-\.]+\.[\w]{2,5})',
-            p_lower)
-        nome_arq = nome_match.group(1) if nome_match else None
-        pedido = f"envia pro discord arquivo:{nome_arq}" if nome_arq else "envia pro discord o ultimo arquivo do Desktop"
-        _set_ctx(autor, last_pedido=pedido, last_action="enviar_discord")
-        registrar("SYS", "Bot", "Claude", f"[SHEIKAH_SLATE-PEDIDO] {pedido}")
-        await message.reply("Procurando o arquivo aqui...")
-        registrar("OUT", "Link", autor, "Procurando o arquivo aqui...")
-        return
 
     # ── Fluxo normal: LLM responde ────────────────────────────────────────────
     # Inclui info dos anexos na mensagem para o LLM decidir naturalmente
@@ -1310,17 +1256,41 @@ async def on_message(message):
         for a in anexos_meta:
             mensagem_llm += f"\n[ARQUIVO: {a['nome']} | URL: {a['url']}]"
 
+    # Classifica intenção via LLM antes de cair no chat genérico
+    try:
+        import sys as _sys2
+        from pathlib import Path as _Path2
+        _sys2.path.insert(0, str(_Path2(__file__).resolve().parents[1]))
+        from bot.core import llm as _llm
+        _DISCORD_SKILLS = [
+            {"name": "spot",        "description": "tocar, baixar ou buscar música, faixa, song, spotify, canção, trilha sonora"},
+            {"name": "imagem",      "description": "buscar, baixar ou enviar imagem, foto, ilustração, arte, picture, wallpaper"},
+            {"name": "triforce",    "description": "tarefa de programação, código, bug, implementar feature, deploy, Claude Code, TRIFORCE"},
+            {"name": "majora",      "description": "tarefa para Codex CLI, análise de código, refatorar, Majora"},
+            {"name": "mastersword", "description": "tarefa para OpenCode, modelo local, gerar código barato, MasterSword"},
+        ]
+        _msg_classify = re.sub(r'<@!?\d+>', '', mensagem_llm).strip()
+        _intent = await asyncio.get_running_loop().run_in_executor(
+            None, _llm.classify_skill_intent, _msg_classify, _DISCORD_SKILLS
+        )
+        if isinstance(_intent, dict):
+            _skill = _intent.get("skill")
+            _args  = (_intent.get("args") or "").strip()
+            if _skill and not _args:
+                _pergunta = await _gerar_pergunta_skill(_skill, _msg_classify)
+                if _pergunta:
+                    _pending_clarification[autor] = (_skill, _msg_classify, datetime.now(LOCAL_TZ).timestamp(), 0)
+                    await message.reply(_pergunta)
+                    registrar("OUT", "Link", autor, _pergunta)
+                    return
+            if _skill and _args:
+                await _executar_skill_discord(message, autor, _skill, _args)
+                return
+    except Exception as _ce:
+        print(f"[classify] erro: {_ce}", flush=True)
+
     async with message.channel.typing():
         resposta = await responder_com_ia(autor, mensagem_llm)
-
-    claude_match = re.search(r'\[SHEIKAH_SLATE:\s*(.*?)\]', resposta, re.IGNORECASE | re.DOTALL)
-    if claude_match:
-        pedido = claude_match.group(1).strip()
-        if _pedido_sheikah_executavel(pedido):
-            _set_ctx(autor, last_pedido=pedido, last_action="llm")
-            registrar("SYS", "Bot", "Claude", f"[SHEIKAH_SLATE-PEDIDO] {pedido}")
-        else:
-            registrar("SYS", "Bot", "Claude", f"[SHEIKAH_SLATE-IGNORADO] {pedido}")
 
     triforce_match = _TRIFORCE_RE.search(resposta)
     if triforce_match:
@@ -1486,13 +1456,6 @@ async def rota_chat(request):
         autor_key = autor.lower().replace(" ", "_")
         registrar("IN", autor, "Link", f"[CONSOLE] {msg}")
         resposta = await responder_com_ia(autor_key, msg)
-
-        # Processa SHEIKAH_SLATE igual ao fluxo do Discord
-        claude_match = re.search(r'\[SHEIKAH_SLATE:\s*(.*?)\]', resposta, re.IGNORECASE | re.DOTALL)
-        if claude_match:
-            pedido = claude_match.group(1).strip()
-            _set_ctx(autor_key, last_pedido=pedido, last_action="llm")
-            registrar("SYS", "Bot", "Claude", f"[SHEIKAH_SLATE-PEDIDO] {pedido}")
 
         triforce_match = _TRIFORCE_RE.search(resposta)
         if triforce_match:

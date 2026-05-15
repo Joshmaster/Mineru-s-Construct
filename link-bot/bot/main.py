@@ -203,6 +203,9 @@ class LinkBot:
         self._retry_task = None
         self._media_cleanup_task = None
 
+        # Clarificação de skill pendente: sender_number → (skill_name, msg_original, ts, retries)
+        self._pending_clarification: dict[str, tuple[str, str, float, int]] = {}
+
         # Allow/admin list
         self.allow_list = list(access_ctl.allow_keys(config))
         self.admin_list = list(access_ctl.admin_keys(config))
@@ -859,15 +862,50 @@ class LinkBot:
             log.info(f"📤 [id={sender_number} phone/chat={chat_number}] {reply}")
             return
 
+        # ── Clarificação pendente ────────────────────────────────────────────────
+        _now_ts = time.time()
+        for _k in [k for k, v in self._pending_clarification.items() if _now_ts - v[2] > 600]:
+            del self._pending_clarification[_k]
+
+        if sender_number in self._pending_clarification:
+            _sk, _orig, _, _retries = self._pending_clarification.pop(sender_number)
+            if _retries < 2:
+                _action, _args_pend = await asyncio.get_event_loop().run_in_executor(
+                    None, _llm.resolver_pendente, _sk, text
+                )
+                if _action == "choose":
+                    _args_pend = await asyncio.get_event_loop().run_in_executor(
+                        None, _llm.ia_escolher_args, _sk
+                    )
+                    _action = "use"
+                if _action == "cannot_choose":
+                    _resp = await asyncio.get_event_loop().run_in_executor(
+                        None, _llm.gerar_pergunta_skill, _sk, _orig, ""
+                    )
+                    if _resp:
+                        await self.client.send_message(chat_jid, _resp)
+                    self._pending_clarification[sender_number] = (_sk, _orig, time.time(), _retries + 1)
+                    return
+                if _action == "use" and _args_pend:
+                    skill_obj = self.router.get_by_name(_sk)
+                    if skill_obj:
+                        match = (skill_obj, _args_pend)
+                        skill, rest = match
+                        log.info(f"  → skill (clarificado): {skill.name} args={_args_pend!r}")
+                        # pula para execução da skill abaixo
+                        # (match não é None, o fluxo normal continua)
+
         # URL auto-detect → delirius_dl (YouTube, Spotify, Instagram, Twitter/X)
-        match = None
+        if not locals().get('match'):
+            match = None
         try:
-            from bot.skills.delirius_dl import detect_url as _detect_dl_url
-            _auto_url, _ = _detect_dl_url(text)
-            if _auto_url:
-                _dl_skill = self.router.get_by_name("delirius_dl")
-                if _dl_skill:
-                    match = (_dl_skill, text)
+            if match is None:
+                from bot.skills.delirius_dl import detect_url as _detect_dl_url
+                _auto_url, _ = _detect_dl_url(text)
+                if _auto_url:
+                    _dl_skill = self.router.get_by_name("delirius_dl")
+                    if _dl_skill:
+                        match = (_dl_skill, text)
         except Exception:
             pass
 
@@ -883,6 +921,17 @@ class LinkBot:
                     match = None
                 elif ai_match is None:
                     match = direct_router
+                elif ai_match and not (ai_match[1] or "").strip():
+                    # skill detectada mas args vazio → pede clarificação
+                    _sk_name = ai_match[0].name
+                    _pergunta = await asyncio.get_event_loop().run_in_executor(
+                        None, _llm.gerar_pergunta_skill, _sk_name, text, ""
+                    )
+                    if _pergunta:
+                        await self.client.send_message(chat_jid, _pergunta)
+                        self._pending_clarification[sender_number] = (_sk_name, text, time.time(), 0)
+                        return
+                    match = ai_match  # pergunta falhou → executa com o que tem
                 else:
                     match = ai_match
 

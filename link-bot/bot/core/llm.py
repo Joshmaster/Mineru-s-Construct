@@ -161,6 +161,17 @@ _cloud_fail_ts: dict[str, float] = {}
 _CLOUD_SKIP_SECS = 180
 _CLOUD_FAIL_THRESHOLD = 3
 
+_key_429: dict[str, float] = {}   # key_suffix → timestamp do último 429
+_KEY_429_COOLDOWN = 60            # segundos antes de retentar uma chave limitada
+
+
+def _key_id(key: str) -> str:
+    return key[-10:] if len(key) >= 10 else key
+
+
+def _key_available(key: str) -> bool:
+    return time.time() - _key_429.get(_key_id(key), 0) >= _KEY_429_COOLDOWN
+
 
 def _mark_cloud_fail(provider: str):
     _cloud_fail[provider] = _cloud_fail.get(provider, 0) + 1
@@ -178,7 +189,8 @@ def _cloud_blocked(provider: str) -> bool:
     return time.time() - _cloud_fail_ts.get(provider, 0) < _CLOUD_SKIP_SECS
 
 
-_AUTH_ERROR = object()  # sentinel: indica erro 401/403
+_AUTH_ERROR = object()    # sentinel: erro 401/403
+_RATE_LIMITED = object()  # sentinel: 429 rate limit
 
 
 def _post(url: str, headers: dict, payload: dict, timeout: int = 20):
@@ -191,6 +203,9 @@ def _post(url: str, headers: dict, payload: dict, timeout: int = 20):
         if e.code in (401, 403):
             log.warning(f"HTTP {url[:40]} auth error {e.code}")
             return _AUTH_ERROR
+        if e.code == 429:
+            log.debug(f"HTTP {url[:40]} rate limited (429)")
+            return _RATE_LIMITED
         log.debug(f"HTTP {url[:40]} falhou {e.code}: {e}")
         return None
     except Exception as e:
@@ -215,33 +230,53 @@ def _call_openrouter(messages: list, max_tokens: int = 300, temperature: float =
     if _cloud_blocked("openrouter"):
         log.debug("OpenRouter bloqueado pelo circuit breaker")
         return None
-    for key in OPENROUTER_KEYS:
-        for model in OPENROUTER_MODELS:
-            headers = {
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {key}",
-                "HTTP-Referer": "https://hyrule.local",
-                "X-Title": "LinkBot",
-            }
-            payload = {
-                "model": model,
-                "messages": messages,
-                "temperature": temperature,
-                "max_tokens": max_tokens,
-                "reasoning": {"enabled": True, "effort": "low", "exclude": True},
-            }
-            resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload, timeout=timeout)
-            if resp is _AUTH_ERROR:
+
+    def _try_keys(keys: list) -> Optional[str]:
+        for key in keys:
+            kid = _key_id(key)
+            for model in OPENROUTER_MODELS:
+                headers = {
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {key}",
+                    "HTTP-Referer": "https://hyrule.local",
+                    "X-Title": "LinkBot",
+                }
+                payload = {
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                    "reasoning": {"enabled": True, "effort": "low", "exclude": True},
+                }
+                resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload, timeout=timeout)
+                if resp is _AUTH_ERROR:
+                    _mark_cloud_fail("openrouter")
+                    break  # chave inválida — pula outros modelos desta chave
+                if resp is _RATE_LIMITED:
+                    _key_429[kid] = time.time()
+                    log.debug(f"OpenRouter chave ...{kid} limitada (429), rotacionando")
+                    break  # tenta próxima chave
+                if resp:
+                    text = _extract_text(resp)
+                    if text and text.strip():
+                        log.debug(f"OpenRouter ok: {model} (chave ...{kid})")
+                        _mark_cloud_ok("openrouter")
+                        return text.strip()
                 _mark_cloud_fail("openrouter")
-                break  # chave inválida — pula outros modelos desta chave
-            if resp:
-                text = _extract_text(resp)
-                if text and text.strip():
-                    log.debug(f"OpenRouter ok: {model}")
-                    _mark_cloud_ok("openrouter")
-                    return text.strip()
-            _mark_cloud_fail("openrouter")
-    return None
+        return None
+
+    # 1ª passagem: chaves não limitadas
+    available = [k for k in OPENROUTER_KEYS if _key_available(k)]
+    result = _try_keys(available)
+    if result:
+        return result
+
+    # 2ª passagem: chaves em cooldown como último recurso
+    cooled = [k for k in OPENROUTER_KEYS if not _key_available(k)]
+    if cooled:
+        log.debug("OpenRouter: chaves disponíveis esgotadas, tentando chaves em cooldown")
+        result = _try_keys(cooled)
+    return result
 
 
 # ── Groq ─────────────────────────────────────────────────────────────────────
@@ -396,22 +431,23 @@ def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
         if item.get("name")
     )
     system_full = (
-        "Voce e um classificador de intencao para um bot WhatsApp.\n"
+        "Voce e um classificador de intencao para um assistente.\n"
         "O usuario pode pedir qualquer coisa em linguagem natural, sem usar comandos.\n"
-        "Seu trabalho: identificar qual skill executar E extrair os argumentos limpos.\n\n"
+        "Seu trabalho: identificar qual skill executar, extrair os argumentos limpos e estimar sua confianca.\n\n"
         "REGRAS:\n"
-        "- Escolha a skill quando a mensagem indica claramente uma acao (baixar musica, gerar imagem, TTS, buscar gif, etc)\n"
+        "- Escolha a skill quando a mensagem indica claramente uma acao (baixar musica, buscar imagem, tarefa de codigo, etc)\n"
         "- Use null so para conversa pura, saudacao, pergunta pessoal ou ambiguidade total\n"
         "- Em 'args': coloque APENAS o conteudo util para a skill — sem @mencoes, sem palavras de comando, sem nome da skill\n"
-        "  Exemplos: 'toca star wars no spotify' → args='star wars'; 'faz um gif de cachorro feliz' → args='cachorro feliz'\n"
-        "  'gera uma imagem de dragao' → args='dragao'; 'fala oi mundo' → args='oi mundo'\n"
-        "- Nao acione lembrete quando a pessoa perguntar se voce a conhece\n"
-        "Responda apenas JSON valido: {\"skill\": string|null, \"args\": string}.\n\n"
+        "  Exemplos: 'toca star wars no spotify' → args='star wars'; 'me manda uma foto de cachorro' → args='cachorro'\n"
+        "  'implementa o login com JWT' → args='implementa login com JWT'; 'fala oi mundo' → args='oi mundo'\n"
+        "- Em 'confidence': numero de 0.0 a 1.0 indicando certeza. Use < 0.7 quando a mensagem for ambigua.\n"
+        "Responda apenas JSON valido: {\"skill\": string|null, \"args\": string, \"confidence\": number}.\n\n"
         f"Skills disponiveis:\n{catalog_full}"
     )
     system_short = (
-        "Classificador de intencao WhatsApp. Usuario fala em linguagem natural.\n"
-        "Retorne APENAS JSON: {\"skill\": string|null, \"args\": string}.\n"
+        "Classificador de intencao. Usuario fala em linguagem natural.\n"
+        "Retorne APENAS JSON: {\"skill\": string|null, \"args\": string, \"confidence\": number}.\n"
+        "confidence: 0.0-1.0 indicando certeza. Use < 0.7 se ambiguo.\n"
         "args = conteudo util para a skill, sem @mencoes nem palavras de comando.\n"
         "Use null so para conversa pura ou saudacao.\n\n"
         f"Skills:\n{catalog_short}"
@@ -433,9 +469,74 @@ def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
         return None
     skill = data.get("skill")
     args = data.get("args", "")
+    confidence = float(data.get("confidence", 1.0))
     if skill is not None and not isinstance(skill, str):
         return None
+    if skill and confidence < 0.7:
+        skill = None  # confiança baixa → trata como conversa
     return {"skill": skill.strip() if isinstance(skill, str) else None, "args": str(args or "").strip()}
+
+
+_SKILL_PROMPTS_AUTO: dict[str, str] = {
+    "spot":   "Sugira uma música aleatória e boa: artista - título.",
+    "imagem": "Sugira um tema visual interessante para buscar uma imagem.",
+    "img":    "Sugira um tema visual interessante para gerar uma imagem.",
+}
+_SKILL_FALLBACKS_AUTO: dict[str, str] = {
+    "spot":   "Zelda - Main Theme",
+    "imagem": "paisagem de Hyrule",
+    "img":    "paisagem de Hyrule",
+}
+_CODE_SKILL_NAMES = {"triforce", "majora", "mastersword"}
+
+
+def gerar_pergunta_skill(skill: str, msg_original: str, persona: str = "") -> str:
+    system = persona or (
+        "Voce e Link, assistente casual. Responda em portugues, curto e direto."
+    )
+    msgs = [
+        {"role": "system", "content": system},
+        {"role": "user", "content": (
+            f"[interno: usuario pediu '{msg_original}' mas nao especificou qual {skill}. "
+            "Faz uma pergunta curta e casual pra ele dizer qual quer, "
+            "e menciona de forma natural que pode escolher por ele se quiser]"
+        )},
+    ]
+    raw = _call_openrouter(msgs, max_tokens=80, temperature=0.85, timeout=8)
+    return _strip_thinking(raw or "").strip()
+
+
+def resolver_pendente(skill: str, resposta: str) -> tuple[str, str]:
+    """Interpreta resposta do usuário para pedido pendente. Retorna (action, args)."""
+    msgs = [
+        {"role": "system", "content": (
+            f"Voce interpreta a resposta do usuario para a skill '{skill}'.\n"
+            f"Skills de codigo (nao podem auto-escolher): {', '.join(_CODE_SKILL_NAMES)}.\n"
+            "Se o usuario especificou algo concreto → {\"action\":\"use\",\"args\":\"o que ele disse\"}\n"
+            "Se quer que a IA escolha E skill NAO e codigo → {\"action\":\"choose\",\"args\":\"\"}\n"
+            "Se quer que a IA escolha E skill E codigo → {\"action\":\"cannot_choose\",\"args\":\"\"}\n"
+            "Responda APENAS JSON valido."
+        )},
+        {"role": "user", "content": resposta},
+    ]
+    raw = _call_openrouter(msgs, max_tokens=60, temperature=0.0, timeout=6)
+    data = _json_from_text(raw or "")
+    if data and data.get("action") in ("use", "choose", "cannot_choose"):
+        return data["action"], str(data.get("args") or "")
+    return "use", resposta
+
+
+def ia_escolher_args(skill: str) -> str:
+    """IA escolhe os args para a skill. Retorna string vazia se skill não suporta."""
+    prompt = _SKILL_PROMPTS_AUTO.get(skill)
+    if not prompt:
+        return ""
+    msgs = [
+        {"role": "system", "content": "Responda APENAS com o nome/termo, sem explicacao."},
+        {"role": "user", "content": prompt},
+    ]
+    raw = _call_openrouter(msgs, max_tokens=40, temperature=0.9, timeout=8)
+    return _strip_thinking(raw or "").strip() or _SKILL_FALLBACKS_AUTO.get(skill, "")
 
 
 def extract_image_query(message: str, usuario: str = "") -> str | None:
@@ -554,9 +655,12 @@ def choose_reaction_emoji(
     def _openrouter_fast() -> str | None:
         if not OPENROUTER_KEYS or not OPENROUTER_MODELS:
             return None
+        # Usa primeira chave disponível; se todas em cooldown, usa qualquer uma
+        key = next((k for k in OPENROUTER_KEYS if _key_available(k)), OPENROUTER_KEYS[0])
+        kid = _key_id(key)
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {OPENROUTER_KEYS[0]}",
+            "Authorization": f"Bearer {key}",
             "HTTP-Referer": "https://hyrule.local",
             "X-Title": "LinkBot",
         }
@@ -568,6 +672,9 @@ def choose_reaction_emoji(
             "reasoning": {"enabled": True, "effort": "low", "exclude": True},
         }
         resp = _post("https://openrouter.ai/api/v1/chat/completions", headers, payload, timeout=5)
+        if resp is _RATE_LIMITED:
+            _key_429[kid] = time.time()
+            return None
         if resp is _AUTH_ERROR or not resp:
             return None
         return _extract_text(resp)

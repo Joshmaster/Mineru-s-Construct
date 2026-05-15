@@ -4,54 +4,45 @@ description: Estado da última sessão - lido ao iniciar para retomar sem perda 
 type: project
 ---
 
-## Feito nesta sessao
+## Feito nesta sessao (2026-05-14)
 
-### Gerenciamento de credenciais — como funciona (2026-05-14)
-- **Causa raiz dos tokens caindo:** havia um GitHub Actions workflow (`deploy-hyrule.yml`) que rodava `setup.sh` a cada push, sobrescrevendo `hyrule_env.py` com o token antigo dos GitHub Secrets
-- **Solução:** workflow removido (commit `d8dc645`). Pushes de código não afetam mais as credenciais
-- Credenciais vivem SOMENTE local: `hyrule_env.py` + `local_secrets/tokens.md`
-- Quando OWNER gerar token novo: salvar em `hyrule_env.py`, atualizar `local_secrets/tokens.md`, reiniciar bot
-- Token atual no arquivo pode estar desatualizado — OWNER confirma/fornece novo quando necessário
+### Roteamento por linguagem natural com clarificação IA (`llm.py`, `link_discord.py`, `bot/main.py`)
+- `classify_skill_intent` agora retorna `confidence` no JSON; se `< 0.7` → trata como conversa
+- Funções compartilhadas adicionadas ao `llm.py` (sync, usadas por Discord e WA via `run_in_executor`):
+  - `gerar_pergunta_skill(skill, msg_original)` → LLM gera pergunta natural ao usuário
+  - `resolver_pendente(skill, resposta)` → LLM extrai args ou detecta "você escolhe"
+  - `ia_escolher_args(skill)` → LLM sugere um argumento quando usuário pede que a IA escolha
+- `_pending_clarification` dict em ambos os bots: `{user_id: (skill, msg_orig, timestamp, retries)}`
+  - TTL 600s (evicção automática a cada mensagem)
+  - Máx 2 retries antes de cair para conversa normal
 
-### !img — Pollinations como padrão (2026-05-14)
-- `link-bot/bot/skills/img_gerar.py` reescrito
-- Padrão agora: Pollinations Flux (grátis, sem chave)
-- Fallback automático: OpenRouter (Gemini por padrão) se Pollinations falhar
-- `--gemini` ou `--openai` forçam OpenRouter diretamente
-- Aspect ratio e overlay (`::`) continuam funcionando
-- Commit: `e1c3e37` — push em `origin/master`
-- WA bot reiniciado após mudança; PID `187641`
+### Discord (`link_discord.py`)
+- `_CODE_AGENTS` dict colapsa triforce/majora/mastersword
+- `_gerar_pergunta_skill`, `_resolver_pendente`, `_ia_escolher_e_executar` delegam para `_llm`
+- Bloco clarificação em `on_message` antes do classify normal
 
-## Feito em sessoes anteriores (resumo)
+### WhatsApp (`bot/main.py`)
+- `self._pending_clarification` em `__init__`
+- Fluxo de clarificação inserido antes do URL auto-detect
 
-- Codex/MAJORA: versão `0.130.0`
-- WA Bridge: rodando porta `7334`, conectado
-- `!spot`: busca inteligente via LLM + Spotify + fallback YouTube; envia MP3 direto
-- `!figurinha`: começa em 60fps, degrada automaticamente
-- Cards de lembrete: Star Wars via Pollinations Flux + PIL overlay
-- `!fala`: edge-tts → MP3 → OGG/Opus PTT
-- Timezone: `America/Sao_Paulo`
-- Limpeza automática de inbox/baú/cards a cada 1h
-- `!img` com overlay: `!img prompt :: texto sobre a imagem`
+### Rotação de chave 429 OpenRouter (`llm.py`)
+- `_key_429` rastreia cooldown por chave (60s)
+- 2-pass em `_call_openrouter`: chaves disponíveis primeiro, depois em cooldown
 
 ## Estado atual dos serviços
-- Hyrule Proxy: rodando
-- Discord bot: online (`LINK e Adventure kit ⚔ 📢🔊#6867`)
-- Supervisor: rodando
-- WA Bridge: rodando (porta `7334`, conectado)
-- WhatsApp bot: rodando (PID `187641`)
-- TRIFORCE daemon: rodando
-- MAJORA watcher/Codex: rodando (`codex-cli 0.130.0`)
-- MASTERSWORD watcher: rodando
+- WA Bridge: ● rodando (porta 7334)
+- WhatsApp bot: ● rodando (PID 210607)
+- Discord bot: ● rodando (PID 209762)
+- Supervisor: ● rodando
+- TRIFORCE/MAJORA/MASTERSWORD: ● rodando
 
-## Pendente / próximas ideias
-- `!img` com Pollinations: não testado ao vivo ainda — primeiro pedido real vai confirmar
-- Nada crítico pendente
+## Pendente
+- Testar fluxo de clarificação em produção (Josh vai testar)
 
 ## Cuidados com dados sensíveis
-- Não commitar: `link-bot/config/config.json`, `link-bot/.linkbot/`, `whatsapp-bridge/auth/`, `whatsapp-bridge/auth_backup*/`
-- `hyrule_env.py` tem token Discord, chaves OpenRouter/Groq — nunca vai pro git
-- `local_secrets/` — nunca vai pro git
+- NUNCA mandar chaves no chat
+- Para atualizar chaves: editar `hyrule_env.py` direto no terminal
+- Não commitar: `link-bot/config/config.json`, `link-bot/.linkbot/`, `whatsapp-bridge/auth/`, `DISCORD/reminders.json`, `hyrule_env.py`, `local_secrets/`
 
 ---
 Atualizado ao encerrar cada sessao. Nao acumula - sobrescreve.
