@@ -3,7 +3,6 @@
 !fala (!voz, !tts)     — converte texto em áudio via Google TTS
 !tt / !attp            — cria sticker com texto escrito (estático ou animado)
 !gif                   — busca e envia GIF do Tenor
-!print (!screenshot)   — tira screenshot de qualquer site
 !melhora (!upscale)    — melhora qualidade ou resolução de imagem
 
 Todas as skills usam api.delirius.store, sem chave de API.
@@ -276,50 +275,6 @@ SKILL_GIF = Skill(
 )
 
 
-# ── !print — screenshot de site ───────────────────────────────────────────────
-
-async def handle_print(ctx: MessageContext):
-    """Tira screenshot de qualquer URL via Delirius (/tools/ssweb) e envia como imagem.
-    Adiciona 'https://' automaticamente se o usuário omitir o protocolo.
-    """
-    url = ctx.args_text.strip()
-    if not url:
-        await ctx.reply("qual site? ex: `!print https://google.com`")
-        return
-    if not url.startswith("http"):
-        url = "https://" + url
-
-    await ctx.typing()
-    data = _get_json("/tools/ssweb", {"url": url}, timeout=60)
-    if not data:
-        await ctx.reply("API fora agora")
-        return
-
-    img_url = _extract_url(data)
-    if not img_url:
-        await ctx.reply(f"não consegui tirar o print 🌀\n`{str(data)[:150]}`")
-        return
-
-    path = await _baixar(img_url, "jpg")
-    if not path:
-        await ctx.reply("não consegui baixar o print")
-        return
-    try:
-        await ctx.reply_media(path, caption=f"🖥️ {url[:60]}")
-    finally:
-        _rm(path)
-
-
-SKILL_PRINT = Skill(
-    name="delirius_print",
-    description="Tira screenshot de um site/URL e envia como imagem — use quando pedir print, captura ou foto de um site.",
-    triggers=["!print", "!screenshot", "!screen"],
-    handler=handle_print,
-    category="util",
-    priority=100,
-)
-
-
 # ── !melhora / !upscale — enhance/upscale de imagem ──────────────────────────
 
 async def handle_melhora(ctx: MessageContext):
@@ -381,4 +336,4 @@ SKILL_MELHORA = Skill(
 )
 
 # O skill loader procura SKILL (único ou lista)
-SKILL = [SKILL_FALA, SKILL_TT, SKILL_GIF, SKILL_PRINT, SKILL_MELHORA]
+SKILL = [SKILL_FALA, SKILL_TT, SKILL_GIF, SKILL_MELHORA]

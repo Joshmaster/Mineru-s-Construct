@@ -433,7 +433,6 @@ def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
         '"qual o clima em Sao Paulo?" → {"skill":"clima","args":"Sao Paulo","confidence":0.95}\n'
         '"manda um gif de gato" → {"skill":"delirius_gif","args":"gato","confidence":0.94}\n'
         '"fala isso em voz alta: hello world" → {"skill":"delirius_fala","args":"hello world","confidence":0.96}\n'
-        '"tira um print do site google.com" → {"skill":"delirius_print","args":"google.com","confidence":0.95}\n'
         '"encurta esse link: https://..." → {"skill":"encurtar","args":"https://...","confidence":0.95}\n'
         '"oi, tudo bem?" → {"skill":null,"args":"","confidence":0.97}\n'
         '"voce e mesmo o Link?" → {"skill":null,"args":"","confidence":0.95}\n'

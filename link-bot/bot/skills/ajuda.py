@@ -84,7 +84,7 @@ def _gerar_imagem():
         col2 = [
             ("🎨 Mídia",  TEAL),
             ("  !yt  !spot  !ig  !img", WHITE),
-            ("  !fala · !tt · !gif · !print", WHITE),
+            ("  !fala · !tt · !gif", WHITE),
             ("  !fig  (envia imagem junto)", WHITE),
             ("", None),
             ("📜 Memória",  TEAL),
@@ -181,7 +181,6 @@ async def handle(ctx: MessageContext):
                 "!fala <texto>  _— voz (TTS)_",
                 "!tt <texto>  _— sticker com texto_",
                 "!gif <busca>  _— GIF do Tenor_",
-                "!print <url>  _— screenshot de site_",
                 "!fig  _— sticker (envia mídia junto)_",
             ]),
             ("📜", "*MEMÓRIA*", [

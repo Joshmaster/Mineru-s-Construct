@@ -545,11 +545,6 @@ class LinkBot:
             if skill:
                 return skill, _clean_natural_args(text, ("fala em voz alta", "fala", "ler", "le", "lê", "em voz alta", "narra", "tts"))
 
-        if any(w in norm for w in ("print do site", "screenshot do site", "captura do site", "tira print do site")):
-            skill = self.router.get_by_name("delirius_print")
-            if skill:
-                return skill, _clean_natural_args(text, ("tira", "print", "screenshot", "captura", "do site", "site"))
-
         return None
 
     def _safe_direct_match(self, match):
