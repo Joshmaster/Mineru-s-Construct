@@ -735,14 +735,6 @@ def _menu_texto(secao: str = "principal", owner: bool = False) -> str:
             "`anota: <texto>`\n"
             "`minhas anotações`"
         )
-    if secao == "hyrule":
-        return (
-            "**🌿 Hyrule**\n"
-            "`achei um korok!`\n"
-            "`quantos koroks`\n"
-            "`frase épica`\n"
-            "`citação aleatória`"
-        )
     if secao == "admin":
         return (
             "**🔱 Admin**\n"
@@ -755,7 +747,7 @@ def _menu_texto(secao: str = "principal", owner: bool = False) -> str:
     texto = (
         "**⚔️ Link — Menu de Hyrule**\n"
         "Escolhe uma área pelos botões abaixo.\n\n"
-        "**Disponível:** Lembretes, Mídia, Memória e Hyrule."
+        "**Disponível:** Lembretes, Mídia e Memória."
     )
     if owner:
         texto += "\n**Dono:** Admin."
@@ -769,7 +761,6 @@ class MenuView(discord.ui.View):
         self.add_item(MenuSectionButton("Lembretes", "⏰", "lembretes"))
         self.add_item(MenuSectionButton("Mídia", "🎨", "midia"))
         self.add_item(MenuSectionButton("Memória", "📜", "memoria"))
-        self.add_item(MenuSectionButton("Hyrule", "🌿", "hyrule"))
         if owner:
             self.add_item(AdminMenuButton())
 
