@@ -39,8 +39,8 @@ _MED_DB: dict[str, tuple[str, str, tuple]] = {
     # Digestivo
     "omeprazol":     ("Omeprazol 20mg",       "1 comp",  (  0, 210, 190)),
     # Nitratos
-    "mononitrato":   ("Mononitrato 20mg",     "1 comp",  (255, 210,   0)),
-    "isossorbida":   ("Mononitrato 20mg",     "1 comp",  (255, 210,   0)),
+    "mononitrato":   ("Mononitrato de Isossorbida 20mg",     "1 comp",  (255, 210,   0)),
+    "isossorbida":   ("Mononitrato de Isossorbida 20mg",     "1 comp",  (255, 210,   0)),
     # Betabloqueador
     "carvedilol":    ("Carvedilol 3,125mg",   "1 comp",  ( 80, 160, 255)),
     # Diurético
