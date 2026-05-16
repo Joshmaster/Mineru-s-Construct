@@ -1395,7 +1395,7 @@ class LinkBot:
 
     async def run(self):
         log.info("=" * 50)
-        log.info("🗡️  LINK BOT — TOTK Edition (Baileys Bridge)")
+        log.info("🗡️  LINK BOT — Hyrule Edition (Baileys Bridge)")
         log.info("=" * 50)
 
         if not self.allow_list:

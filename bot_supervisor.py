@@ -1766,7 +1766,7 @@ def buscar_internet(query: str) -> str:
 
 def buscar_imagem(termo: str, wiki: str = "zelda") -> str:
     """Busca URL direta de imagem. Fluxo:
-    1. Hyrule Compendium API (BOTW/TOTK) — slug lowercase+underscore
+    1. Hyrule Compendium API (BOTW/TOTK/Hyrule) — slug lowercase+underscore
     2. Fandom Zelda pageimages original — imagem principal da página do item
     3. Wikimedia Commons generator=search namespace=6 — fallback genérico
     Retorna URL direta ou mensagem de erro.

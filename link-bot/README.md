@@ -1,11 +1,10 @@
-# 🗡️ Link Bot TOTK — Bot Pessoal de WhatsApp
+# 🗡️ Link Bot — Bot Pessoal de WhatsApp
 
-Bot de WhatsApp pessoal com persona de **Link de Tears of the Kingdom**.
+Bot de WhatsApp pessoal com persona de **Link de Hyrule**.
 Roda local, dados seus, sem mensalidade, sem servidor externo.
 
 **28 comandos em 9 categorias**, todos respondendo no estilo Hyrule.
-Modo atual: **TOTK puro (sem LLM)** — funciona offline-first, determinístico,
-gratuito. LLM fica como **passo 3** futuro (descrito ao final).
+Modo atual: **offline-first, determinístico**, gratuito. LLM fica como **passo 3** futuro (descrito ao final).
 
 ---
 
