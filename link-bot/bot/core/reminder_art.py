@@ -295,19 +295,19 @@ async def render_starwars_card(reminder: dict) -> str:
     # ── Background via Cloudflare Worker (flux-schnell) ────────────────────────
     prompt = random.choice(_SW_PROMPTS)
     try:
-        from hyrule_env import CF_WORKER_IMG_URL
-        worker_url = CF_WORKER_IMG_URL
+        from hyrule_env import CF_WORKER_IMG_URL as _worker_url
     except ImportError:
-        worker_url = "https://hyrule-imgai.joshuevieirabarbosa.workers.dev"
+        _worker_url = None
 
     bg: Image.Image | None = None
-    try:
-        async with httpx.AsyncClient(timeout=90) as client:
-            resp = await client.post(worker_url, json={"prompt": prompt, "model": "flux-schnell"})
-            if resp.status_code == 200:
-                bg = Image.open(io.BytesIO(resp.content)).convert("RGBA").resize((1080, 1080))
-    except Exception:
-        pass
+    if _worker_url:
+        try:
+            async with httpx.AsyncClient(timeout=90) as client:
+                resp = await client.post(_worker_url, json={"prompt": prompt, "model": "flux-schnell"})
+                if resp.status_code == 200:
+                    bg = Image.open(io.BytesIO(resp.content)).convert("RGBA").resize((1080, 1080))
+        except Exception:
+            pass
 
     if bg is None:
         bg = Image.new("RGBA", (1080, 1080), (0, 0, 12, 255))
