@@ -296,6 +296,7 @@ class LinkBot:
         self._pending_reminder_ack: dict[str, dict] = {}
         self._retry_task = None
         self._media_cleanup_task = None
+        self._presence_task = None
 
         # Clarificação de skill pendente: sender_number → (skill_name, msg_original, ts, retries)
         self._pending_clarification: dict[str, tuple[str, str, float, int]] = {}
@@ -334,6 +335,19 @@ class LinkBot:
             log.info(f"🧹 Mídias temporárias expiradas removidas: {removed}")
         if self._media_cleanup_task is None or self._media_cleanup_task.done():
             self._media_cleanup_task = asyncio.create_task(self._media_cleanup_loop())
+        if self._presence_task is None or self._presence_task.done():
+            self._presence_task = asyncio.create_task(self._presence_keepalive_loop())
+
+    async def _presence_keepalive_loop(self):
+        import random as _rnd
+        while True:
+            await asyncio.sleep(_rnd.randint(270, 330))
+            try:
+                bridge_url = self.config.get("BRIDGE_URL", "http://localhost:7334")
+                async with httpx.AsyncClient(timeout=8) as cli:
+                    await cli.post(f"{bridge_url}/send/presence", json={"presence": "available"})
+            except Exception:
+                pass
 
     async def _media_cleanup_loop(self):
         while True:

@@ -400,12 +400,15 @@ app.post("/send/delete", requireConnected, async (req, res) => {
 
 app.post("/send/presence", requireConnected, async (req, res) => {
     const { jid, presence = "composing" } = req.body;
-    if (!jid) return res.status(400).json({ ok: false, error: "jid obrigatório" });
     try {
-        await sock.sendPresenceUpdate(presence, jid);
+        if (jid) {
+            await sock.sendPresenceUpdate(presence, jid);
+        } else {
+            // Presença global — aparece online pra todos
+            await sock.sendPresenceUpdate(presence);
+        }
         res.json({ ok: true });
     } catch (e) {
-        // Presence failures are non-critical
         res.json({ ok: false, error: e.message });
     }
 });
