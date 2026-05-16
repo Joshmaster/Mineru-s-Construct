@@ -1,4 +1,4 @@
-"""Skill: !img — gera imagem via Pollinations (padrão) ou OpenRouter (fallback)."""
+"""Skill: !img — gera imagem via Cloudflare Worker (flux-schnell) ou OpenRouter (fallback)."""
 
 import asyncio
 import base64
@@ -126,23 +126,26 @@ def _parse_args(text: str) -> tuple[str, str, str, bool]:
     return modelo, aspect, prompt, forcar_openrouter
 
 
-def _gerar_pollinations(prompt: str, aspect: str) -> tuple[str | None, str]:
-    width, height = ASPECT_TO_SIZE.get(aspect, (1080, 1080))
-    seed = int(time.time()) % 99999
-    url = (
-        "https://image.pollinations.ai/prompt/"
-        + urllib.parse.quote(prompt)
-        + f"?model=flux&width={width}&height={height}&seed={seed}&nologo=true"
-    )
+def _gerar_cloudflare(prompt: str, aspect: str) -> tuple[str | None, str]:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "HyruleBot/1.0"})
+        from hyrule_env import CF_WORKER_IMG_URL as _url
+    except ImportError:
+        return None, "CF_WORKER_IMG_URL não configurado em hyrule_env.py"
+    width, height = ASPECT_TO_SIZE.get(aspect, (1080, 1080))
+    payload = json.dumps({"prompt": prompt, "model": "flux-schnell", "width": width, "height": height}).encode()
+    try:
+        req = urllib.request.Request(
+            _url, data=payload,
+            headers={"Content-Type": "application/json", "User-Agent": "HyruleBot/1.0"},
+            method="POST",
+        )
         with urllib.request.urlopen(req, timeout=90) as resp:
             if resp.status != 200:
-                return None, f"Pollinations retornou {resp.status}"
+                return None, f"Cloudflare Worker retornou {resp.status}"
             data = resp.read()
-        out = Path(tempfile.gettempdir()) / f"hyrule_img_{int(time.time())}_{time.time_ns()}.png"
+        out = Path(tempfile.gettempdir()) / f"hyrule_img_{int(time.time())}_{time.time_ns()}.jpg"
         out.write_bytes(data)
-        return str(out), f"Pollinations Flux · {aspect}"
+        return str(out), f"Cloudflare Flux · {aspect}"
     except Exception as e:
         return None, str(e)
 
@@ -283,10 +286,10 @@ async def handle(ctx: MessageContext):
 
     if not forcar_openrouter:
         path, info = await asyncio.get_event_loop().run_in_executor(
-            None, _gerar_pollinations, prompt, aspect
+            None, _gerar_cloudflare, prompt, aspect
         )
         if not path:
-            log.warning(f"Pollinations falhou ({info}), tentando OpenRouter...")
+            log.warning(f"Cloudflare Worker falhou ({info}), tentando OpenRouter...")
 
     if not path:
         path, info = await asyncio.get_event_loop().run_in_executor(

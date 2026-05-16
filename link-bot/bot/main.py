@@ -390,6 +390,22 @@ class LinkBot:
                 return
             except Exception as e:
                 log.warning(f"Falha enviando reminder no grupo {send_to}: {e}")
+        elif send_to:
+            # JID direto com servidor explícito (ex: @lid)
+            try:
+                jid = build_jid(send_to)
+                if image_path:
+                    resp = await asyncio.wait_for(
+                        self.client.send_image(jid, image_path, caption=text or None),
+                        timeout=25,
+                    )
+                else:
+                    resp = await asyncio.wait_for(self.client.send_message(jid, text), timeout=25)
+                log.info(f"Reminder entregue via {send_to}")
+                self._register_reminder_ack(resp, text, send_to)
+                return
+            except Exception as e:
+                log.warning(f"Falha enviando reminder via send_to {send_to}: {e}")
 
         last_error = None
         for jid in self._reminder_jid_candidates(user_jid_str):
