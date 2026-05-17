@@ -1,6 +1,7 @@
 # Memory Index
 
 - [REGRA 0 — Dados sensíveis local only](feedback_regra0_dados_sensiveis.md) — tokens, chaves e credenciais NUNCA vão pro git; somente servidor local
+- [REGRA 0.1 — Offhand + git após aprovação](feedback_offhand_git_rule.md) — após OWNER gostar da mudança, atualizar session_handoff.md e git push automaticamente
 
 - [Projeto Hyrule](project_hyrule.md) — arquitetura completa: bot Link, supervisor, watcher, proxy, hooks, fluxo de pedidos
 - [Rotina e comportamento padrão](feedback_session_start.md) — o que fazer a cada sessão, como responder ao "claude link", o que monitorar proativamente

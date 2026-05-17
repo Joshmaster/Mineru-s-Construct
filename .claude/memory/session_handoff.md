@@ -67,6 +67,9 @@ Este arquivo e o canal de handoff entre TRIFORCE/Claude, MAJORA/Codex e MASTERSW
 - `hyrule_env.py` nao rastreado (contem chaves)
 - `.boss_notify_pid` e `.claude/scheduled_tasks.lock` nao rastreados (ignorar)
 
+### Regras novas desta sessao
+- **REGRA 0.1:** apos OWNER aprovar qualquer mudanca, sempre atualizar session_handoff.md e fazer git push automaticamente — sem precisar pedir. Salvo em `feedback_offhand_git_rule.md`.
+
 ### Pendencias / atencao
 - Zelda milkshake reminder (IDs 14-15 no banco) dispara 17/05 14:00 — verificar se chegou
 - Se supervisor ou boss notify caiu, use `python3 startup_services.py start` para relancar
