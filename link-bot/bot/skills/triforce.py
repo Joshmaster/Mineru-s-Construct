@@ -145,7 +145,7 @@ SKILL = [
     Skill(
         name="triforce_cmd",
         description="*!triforce <pedido>* — fala direto com o Claude (só dono)",
-        triggers=["!triforce"],
+        triggers=["!triforce", "chama triforce", "aciona triforce", "pede pra triforce"],
         handler=handle_triforce,
         category="admin",
         priority=20,
@@ -161,7 +161,7 @@ SKILL = [
     Skill(
         name="majora_cmd",
         description="*!majora <pedido>* — fala direto com o Codex (só dono)",
-        triggers=["!majora"],
+        triggers=["!majora", "chama majora", "aciona majora", "pede pra majora"],
         handler=handle_majora,
         category="admin",
         priority=20,
@@ -177,7 +177,10 @@ SKILL = [
     Skill(
         name="mastersword_cmd",
         description="*!mastersword <pedido>* — fala direto com o OpenCode (só dono)",
-        triggers=["!mastersword", "!opencode"],
+        triggers=[
+            "!mastersword", "!opencode", "chama mastersword", "aciona mastersword",
+            "pede pra mastersword", "chama opencode", "aciona opencode",
+        ],
         handler=handle_mastersword,
         category="admin",
         priority=20,

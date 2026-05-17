@@ -112,6 +112,29 @@ def _looks_like_media_request(text: str) -> bool:
     return action and media
 
 
+def _looks_like_image_search_request(text: str) -> bool:
+    norm = _norm_text(text)
+    action = any(w in norm for w in (
+        "baixa", "baixar", "manda", "mandar", "enviar", "envia",
+        "procura", "procurar", "busca", "buscar", "pega", "acha", "achar",
+        "download",
+    ))
+    image = any(w in norm for w in (
+        "imagem", "imagens", "foto", "fotos", "figura", "artwork",
+        "arte", "png", "jpg", "jpeg",
+    ))
+    return action and image
+
+
+def _looks_like_music_request(text: str) -> bool:
+    norm = _norm_text(text)
+    if any(w in norm for w in ("toca", "tocar", "coloca", "play")):
+        return True
+    action = any(w in norm for w in ("baixa", "baixar", "manda", "mandar", "pega"))
+    music = any(w in norm for w in ("musica", "audio", "mp3", "spotify", "youtube", "faixa", "track", "song"))
+    return action and music
+
+
 def _looks_like_contextual_music_request(text: str) -> bool:
     norm = _norm_text(text)
     return bool(norm) and any(x in norm for x in (
@@ -217,6 +240,20 @@ def load_config() -> dict:
 
 # ===================== SKILL LOADER =====================
 
+DISABLED_SKILL_MODULES = {
+    "aleatorio",  # dado, moeda, sorteio, senha
+    "calc",
+    "cep",
+    "clima",
+    "conversao",
+    "cotacao",
+    "encurtar",
+    "hora",
+    "noticias",
+    "qr",
+}
+
+
 def load_all_skills(router: Router):
     """Importa cada skill em bot/skills/ e registra no router."""
     skills_dir = ROOT / "bot" / "skills"
@@ -225,6 +262,8 @@ def load_all_skills(router: Router):
 
     for f in sorted(skills_dir.glob("*.py")):
         if f.name.startswith("_"):
+            continue
+        if f.stem in DISABLED_SKILL_MODULES:
             continue
         mod_name = f"bot.skills.{f.stem}"
         try:
@@ -550,7 +589,40 @@ class LinkBot:
         """Atalhos determinísticos para pedidos naturais que não devem depender do LLM."""
         norm = _norm_text(text)
 
-        if _looks_like_media_request(text):
+        if "discord" in norm and any(w in norm for w in ("manda", "envia", "passa", "encaminha")):
+            skill = self.router.get_by_name("discord_forward")
+            if skill:
+                return skill, _clean_natural_args(text, ("manda", "envia", "passa", "encaminha", "pro", "para", "discord"))
+
+        if any(w in norm for w in ("traduz", "traduzir", "traducao", "tradução", "translate")):
+            skill = self.router.get_by_name("tradutor")
+            if skill:
+                args = re.sub(r"(?i)^\s*(?:link[,:\s-]*)?(?:traduzir|traduz|tradu[çc][aã]o|translate)\s*", "", text or "").strip(" :,-")
+                return skill, args
+
+        if any(w in norm for w in ("melhora imagem", "melhorar imagem", "melhora foto", "melhorar foto", "upscale", "aumenta resolucao", "aumenta resolução")):
+            skill = self.router.get_by_name("delirius_melhora")
+            if skill:
+                url_match = re.search(r"https?://\S+", text or "")
+                args = url_match.group(0) if url_match else _clean_natural_args(text, (
+                    "melhora", "melhorar", "imagem", "foto", "upscale",
+                    "aumenta", "resolucao", "resolução", "qualidade",
+                ))
+                return skill, args
+
+        if _looks_like_image_search_request(text):
+            skill = self.router.get_by_name("imagem_buscar")
+            if skill:
+                args = _clean_natural_args(text, (
+                    "baixa", "baixar", "manda", "mandar", "enviar",
+                    "envia", "procura", "procurar", "busca", "buscar", "pega",
+                    "acha", "achar", "download", "uma", "umas", "um", "a", "o",
+                    "me", "de", "do", "da", "imagem", "imagens", "foto", "fotos",
+                    "figura", "artwork", "arte", "png", "jpg", "jpeg",
+                ))
+                return skill, args
+
+        if _looks_like_music_request(text) or _looks_like_media_request(text):
             skill = self.router.get_by_name("delirius_dl")
             if skill:
                 args = _clean_natural_args(text, (
@@ -565,6 +637,14 @@ class LinkBot:
             if skill:
                 return skill, _clean_natural_args(text, ("gera", "gerar", "cria", "criar", "imagem", "desenha", "ilustra"))
 
+        if any(w in norm for w in ("figurinha com texto", "sticker com texto", "adesivo com texto", "figurinha escrito", "sticker escrito")):
+            skill = self.router.get_by_name("delirius_tt")
+            if skill:
+                return skill, _clean_natural_args(text, (
+                    "cria", "criar", "faz", "fazer", "figurinha", "sticker",
+                    "adesivo", "com", "texto", "escrito", "animado",
+                ))
+
         if "gif" in norm:
             skill = self.router.get_by_name("delirius_gif")
             if skill:
@@ -574,6 +654,18 @@ class LinkBot:
             skill = self.router.get_by_name("delirius_fala")
             if skill:
                 return skill, _clean_natural_args(text, ("fala em voz alta", "fala", "ler", "le", "lê", "em voz alta", "narra", "tts"))
+
+        agent_routes = (
+            ("majora", "majora_cmd"),
+            ("triforce", "triforce_cmd"),
+            ("mastersword", "mastersword_cmd"),
+            ("opencode", "mastersword_cmd"),
+        )
+        for word, skill_name in agent_routes:
+            if word in norm and any(w in norm for w in ("chama", "aciona", "pede pra", "passa pra")):
+                skill = self.router.get_by_name(skill_name)
+                if skill:
+                    return skill, _clean_natural_args(text, ("chama", "aciona", "pede", "pra", "passa", "para", word))
 
         return None
 

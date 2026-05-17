@@ -426,14 +426,19 @@ def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
         '"baixa essa musica do youtube: https://youtu.be/abc" → {"skill":"delirius_dl","args":"https://youtu.be/abc","confidence":0.98}\n'
         '"coloca Bohemian Rhapsody" → {"skill":"delirius_dl","args":"Bohemian Rhapsody","confidence":0.89}\n'
         '"me manda uma foto de cachorro" → {"skill":"imagem_buscar","args":"cachorro","confidence":0.92}\n'
+        '"baixa uma imagem de Link segurando a Master Sword" → {"skill":"imagem_buscar","args":"Link segurando a Master Sword","confidence":0.96}\n'
+        '"procura fotos da Zelda" → {"skill":"imagem_buscar","args":"Zelda","confidence":0.94}\n'
         '"gera uma imagem de dragao voando" → {"skill":"img_gerar","args":"dragao voando","confidence":0.95}\n'
-        '"quanto ta o dolar?" → {"skill":"cotacao","args":"dolar","confidence":0.93}\n'
         '"traduz pra ingles: ola mundo" → {"skill":"tradutor","args":"pra ingles: ola mundo","confidence":0.97}\n'
         '"me lembra amanha as 9h de ligar pro medico" → {"skill":"lembrete_criar","args":"amanha as 9h ligar pro medico","confidence":0.96}\n'
-        '"qual o clima em Sao Paulo?" → {"skill":"clima","args":"Sao Paulo","confidence":0.95}\n'
         '"manda um gif de gato" → {"skill":"delirius_gif","args":"gato","confidence":0.94}\n'
         '"fala isso em voz alta: hello world" → {"skill":"delirius_fala","args":"hello world","confidence":0.96}\n'
-        '"encurta esse link: https://..." → {"skill":"encurtar","args":"https://...","confidence":0.95}\n'
+        '"cria uma figurinha com texto bom dia" → {"skill":"delirius_tt","args":"bom dia","confidence":0.94}\n'
+        '"melhora essa imagem https://site/foto.jpg" → {"skill":"delirius_melhora","args":"https://site/foto.jpg","confidence":0.95}\n'
+        '"manda essa foto pro Discord" → {"skill":"discord_forward","args":"foto","confidence":0.93}\n'
+        '"faz uma anotacao: comprar filtro" → {"skill":"nota_add","args":"comprar filtro","confidence":0.92}\n'
+        '"adiciona trocar lampada na minha lista" → {"skill":"todo_add","args":"trocar lampada","confidence":0.93}\n'
+        '"chama a majora pra revisar o bot" → {"skill":"majora_cmd","args":"revisar o bot","confidence":0.95}\n'
         '"oi, tudo bem?" → {"skill":null,"args":"","confidence":0.97}\n'
         '"voce e mesmo o Link?" → {"skill":null,"args":"","confidence":0.95}\n'
     )
@@ -443,6 +448,11 @@ def classify_skill_intent(message: str, skills: list[dict]) -> dict | None:
         "identificar qual skill executar, extrair os argumentos uteis e estimar confianca.\n\n"
         "REGRAS:\n"
         "- Escolha a skill quando a mensagem pede claramente uma acao (baixar, buscar, gerar, traduzir, lembrar, etc)\n"
+        "- Se o pedido menciona imagem/foto/imagens/fotos e quer buscar/baixar/mandar da web, use imagem_buscar, NAO delirius_dl.\n"
+        "- Use delirius_dl so para musica/audio/video/YouTube/Spotify/Instagram/Twitter/X ou links dessas plataformas.\n"
+        "- Se o pedido e criar/desenhar/gerar uma imagem nova por IA, use img_gerar; se e buscar uma imagem existente, use imagem_buscar.\n"
+        "- Se pedir GIF, use delirius_gif. Se pedir voz/audio falando texto, use delirius_fala. Se pedir figurinha/sticker com texto, use delirius_tt.\n"
+        "- Se pedir encaminhar midia para Discord, use discord_forward.\n"
         "- Voce pode usar aliases !comando internamente para decidir a skill, mesmo quando o usuario falou natural.\n"
         "- Se a mensagem contem !comando (ex: '!spot zelda'), use esse comando para identificar a skill.\n"
         "- Se tiver mais certeza por alias, pode retornar skill='!comando' ou args iniciando com '!comando'; o sistema resolve internamente.\n"

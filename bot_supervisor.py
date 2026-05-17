@@ -1875,6 +1875,33 @@ def buscar_imagem(termo: str, wiki: str = "zelda") -> str:
         except Exception as e:
             log(f"buscar_imagem: Fandom search falhou → {e}")
 
+        # 2d. Zelda Wiki independente — costuma indexar melhor artes oficiais.
+        try:
+            termos_search = [termo_original, termo]
+            low_original = termo_original.lower()
+            if "link" in low_original and "master sword" in low_original:
+                termos_search.insert(0, "Link Master Sword")
+            vistos_search = set()
+            for busca in termos_search:
+                busca = " ".join(str(busca or "").split())
+                if not busca or busca.lower() in vistos_search:
+                    continue
+                vistos_search.add(busca.lower())
+                api = (
+                    f"https://zeldawiki.wiki/w/api.php?action=query"
+                    f"&generator=search&gsrsearch={urllib.request.quote(busca)}&gsrnamespace=6"
+                    f"&prop=imageinfo&iiprop=url&gsrlimit=10&format=json"
+                )
+                req = urllib.request.Request(api, headers=headers)
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    data = json.loads(r.read())
+                for page in data.get("query", {}).get("pages", {}).values():
+                    title_img = str(page.get("title", "")).replace("File:", "")
+                    for info in page.get("imageinfo", []):
+                        _add(info.get("url", ""), "zeldawiki_search", title_img)
+        except Exception as e:
+            log(f"buscar_imagem: ZeldaWiki search falhou → {e}")
+
     # 3. Wikimedia Commons — generator=search namespace=6 (arquivos/imagens)
     try:
         query = urllib.request.quote(termo)
@@ -1922,6 +1949,8 @@ def _canonicalizar_consulta_imagem(termo: str) -> str:
     t = " ".join(t.split())
 
     # Entidade Link, personagem, não a franquia nem a princesa Zelda.
+    if "link" in low and "master sword" in low:
+        return "Link Master Sword"
     if "link" in low and any(x in low for x in ["character", "personagem", "zelda", "hyrule"]):
         return "Link"
 

@@ -179,7 +179,12 @@ async def handle_fala(ctx: MessageContext):
 SKILL_FALA = Skill(
     name="delirius_fala",
     description="Converte texto em áudio/voz — use quando pedem pra falar, narrar, ler em voz alta ou gerar áudio de um texto.",
-    triggers=["!fala", "!voz", "!tts", "!diz", "!falar"],
+    triggers=[
+        "!fala", "!voz", "!tts", "!diz", "!falar",
+        "fala em voz alta", "ler em voz alta", "lê em voz alta",
+        "narra isso", "gera audio falando", "gerar audio falando",
+        "faz audio falando", "faz áudio falando",
+    ],
     handler=handle_fala,
     category="util",
     priority=100,
@@ -226,7 +231,12 @@ async def handle_stickertext(ctx: MessageContext):
 SKILL_TT = Skill(
     name="delirius_tt",
     description="Cria figurinha/sticker com texto escrito — use quando pedir pra criar sticker, figurinha ou adesivo com um texto.",
-    triggers=["!tt", "!ttp", "!attp", "!stickertext"],
+    triggers=[
+        "!tt", "!ttp", "!attp", "!stickertext",
+        "figurinha com texto", "sticker com texto", "adesivo com texto",
+        "cria figurinha escrito", "criar figurinha escrito",
+        "faz figurinha escrito", "faz sticker escrito",
+    ],
     handler=handle_stickertext,
     category="midia",
     priority=105,
@@ -268,7 +278,7 @@ async def handle_gif(ctx: MessageContext):
 SKILL_GIF = Skill(
     name="delirius_gif",
     description="Busca e envia GIF animado — use quando pedem um GIF, meme animado ou reação em GIF sobre algum tema.",
-    triggers=["!gif", "!giff"],
+    triggers=["!gif", "!giff", "manda gif", "buscar gif", "busca gif", "gif de", "meme animado"],
     handler=handle_gif,
     category="midia",
     priority=100,
@@ -329,7 +339,11 @@ async def handle_melhora(ctx: MessageContext):
 SKILL_MELHORA = Skill(
     name="delirius_melhora",
     description="Melhora qualidade ou aumenta resolução de uma imagem — use quando pedir pra melhorar, aumentar ou dar upscale numa imagem.",
-    triggers=["!melhora", "!enhance", "!upscale", "!melhorar"],
+    triggers=[
+        "!melhora", "!enhance", "!upscale", "!melhorar",
+        "melhora imagem", "melhorar imagem", "melhora foto", "melhorar foto",
+        "aumenta resolucao", "aumenta resolução", "upscale imagem", "upscale foto",
+    ],
     handler=handle_melhora,
     category="midia",
     priority=100,

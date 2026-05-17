@@ -205,6 +205,25 @@ Fluxo de 3 níveis testado e validado:
 - `zelda_milkshake_reminder.py` removido: era one-shot de 17/05/2026 14:00, ja disparado e desativado.
 - Watchers MAJORA/MASTERSWORD agora preservam item de fila quando lock esta ativo, evitando perda de pedido em corrida.
 
+## Mudanças sessão 2026-05-17 — roteamento natural enxuto
+
+- `link-bot/bot/main.py` tem `DISABLED_SKILL_MODULES` para nao carregar skills nunca usadas:
+  - `aleatorio`, `calc`, `cep`, `clima`, `conversao`, `cotacao`, `encurtar`, `hora`, `noticias`, `qr`.
+  - Isso remove dado/moeda/sorteio/senha, calculo, CEP, clima, conversao, cotacao, URL curta, hora, noticias e QR como skills.
+  - Perguntas desses temas caem no chat normal/LLM.
+- Roteamento natural prioriza:
+  - imagem/foto -> `imagem_buscar`
+  - criar/desenhar imagem -> `img_gerar`
+  - tocar/baixar musica/video -> `delirius_dl`
+  - GIF -> `delirius_gif`
+  - voz/TTS -> `delirius_fala`
+  - figurinha com texto -> `delirius_tt`
+  - melhorar/upscale imagem -> `delirius_melhora`
+  - mandar midia para Discord -> `discord_forward`
+  - agents naturais -> `triforce_cmd`, `majora_cmd`, `mastersword_cmd`
+- Classificador LLM (`link-bot/bot/core/llm.py`) ganhou regras e exemplos para evitar confundir imagem com musica/download.
+- Busca de imagem (`bot_supervisor.py`) ganhou fallback `zeldawiki.wiki` para artes oficiais, especialmente `Link Master Sword`.
+
 ## Navegação de pastas — arquitetura (2026-04-16)
 - `_salvar_nav_state(usuario, pasta)` salva `{"pasta": str, "itens": [nomes reais]}` em `nav_state.json`
 - `_carregar_nav_state(autor)` em link_discord.py injeta pasta + itens no prompt do LLM

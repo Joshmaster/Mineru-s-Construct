@@ -86,8 +86,12 @@ async def handle(ctx: MessageContext):
 SKILL = Skill(
     name="imagem_buscar",
     description="buscar foto/imagem na web e enviar a imagem baixada no WhatsApp",
-    triggers=["!imagem", "!foto"],
+    triggers=[
+        "!imagem", "!foto", "imagem", "imagens", "foto", "fotos",
+        "busca imagem", "buscar imagem", "baixa imagem", "baixar imagem",
+        "manda imagem", "manda foto", "procura imagem", "acha imagem",
+    ],
     handler=handle,
     category="web",
-    priority=80,
+    priority=120,
 )

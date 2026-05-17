@@ -69,12 +69,11 @@ def _gerar_imagem():
             ("  !lembra todo dia 22h de X", WHITE),
             ("  meus lembretes", WHITE),
             ("", None),
-            ("🗺️ Consultas",  TEAL),
-            ("  !clima Porto Alegre", WHITE),
-            ("  !cotacao dólar / bitcoin", WHITE),
-            ("  !cep 01310100", WHITE),
-            ("  !hora Tóquio", WHITE),
-            ("  !news · !news tecnologia", WHITE),
+            ("🎨 Mídia",  TEAL),
+            ("  toca uma música", WHITE),
+            ("  busca imagem de Link", WHITE),
+            ("  gera imagem de Hyrule", WHITE),
+            ("  manda gif de gato", WHITE),
             ("", None),
             ("📜 Diário",  TEAL),
             ("  adiciona <missão> na lista", WHITE),
@@ -82,10 +81,11 @@ def _gerar_imagem():
             ("  anota: <texto>", WHITE),
         ]
         col2 = [
-            ("🎨 Mídia",  TEAL),
-            ("  !yt  !spot  !ig  !img", WHITE),
-            ("  !fala · !tt · !gif", WHITE),
-            ("  !fig  (envia imagem junto)", WHITE),
+            ("🧰 Ações",  TEAL),
+            ("  fala em voz alta <texto>", WHITE),
+            ("  figurinha com texto <texto>", WHITE),
+            ("  melhora imagem <url>", WHITE),
+            ("  manda essa foto pro Discord", WHITE),
             ("", None),
             ("📜 Memória",  TEAL),
             ("  adiciona missão na lista", WHITE),
@@ -110,7 +110,7 @@ def _gerar_imagem():
 
         # Rodapé
         draw.line([(60, H - 40), (W - 60, H - 40)], fill=GOLD, width=1)
-        draw.text((cx, H - 22), "Fala natural também funciona  ·  ex: 'clima em SP'", font=font_small, fill=DIM, anchor="mm")
+        draw.text((cx, H - 22), "Fala natural primeiro  ·  comandos ! ficam só como alias", font=font_small, fill=DIM, anchor="mm")
 
         MENU_IMG.parent.mkdir(parents=True, exist_ok=True)
         img.save(str(MENU_IMG), "JPEG", quality=88)
@@ -198,9 +198,10 @@ async def handle(ctx: MessageContext):
     linhas += [
         f"{'▬' * 18}",
         "_Fala natural também funciona:_",
-        "_↳ 'clima em Curitiba hoje?'_",
+        "_↳ 'toca ELO Telephone Line'_",
+        "_↳ 'busca imagem de Link com a Master Sword'_",
         "_↳ 'me lembra daqui 1h de beber água'_",
-        "_↳ 'quanto é 200 dólares em reais?'_",
+        "_↳ 'manda essa foto pro Discord'_",
     ]
 
     texto = "\n".join(linhas)

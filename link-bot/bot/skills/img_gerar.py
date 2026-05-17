@@ -316,7 +316,10 @@ async def handle(ctx: MessageContext):
 SKILL = Skill(
     name="img_gerar",
     description="Gera imagem com IA a partir de um prompt — use quando pedir pra criar, gerar, desenhar ou ilustrar algo.",
-    triggers=["!img"],
+    triggers=[
+        "!img", "gera imagem", "gerar imagem", "cria imagem", "criar imagem",
+        "desenha", "desenhe", "ilustra", "ilustre", "faz uma imagem",
+    ],
     handler=handle,
     category="midia",
     priority=120,
