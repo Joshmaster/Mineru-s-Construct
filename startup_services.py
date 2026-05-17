@@ -71,6 +71,11 @@ ITCH_SCRIPT = BASE / "itch_monitor.py"
 ITCH_PID    = BASE / ".itch_monitor_pid"
 ITCH_LOG    = BASE / "itch_monitor.log"
 
+# Boss Mundial notify daemon (Discord only)
+BOSS_SCRIPT = BASE / "world_boss_notify.py"
+BOSS_PID    = BASE / ".boss_notify_pid"
+BOSS_LOG    = BASE / "boss_notify.log"
+
 # Hyrule proxy
 PROXY_SCRIPT = BASE / "CLAUDE CODE" / "proxy.py"
 PROXY_PID    = BASE / ".proxy_pid"
@@ -448,6 +453,31 @@ def iniciar_itch_monitor():
     return True
 
 
+def _boss_rodando() -> bool:
+    pid = _ler_pid(BOSS_PID)
+    return bool(pid) and _pid_ativo(pid)
+
+
+def iniciar_boss_notify():
+    print("Iniciando Boss Mundial notify...")
+    proc = _spawn(
+        [PYTHON, "-u", str(BOSS_SCRIPT)],
+        BASE,
+        BOSS_LOG,
+        BOSS_PID,
+    )
+    print(f"  PID {proc.pid}")
+    return True
+
+
+def parar_boss_notify():
+    _matar_por_script("world_boss_notify")
+    pid = _ler_pid(BOSS_PID)
+    if pid:
+        _matar_pid(pid)
+    BOSS_PID.unlink(missing_ok=True)
+
+
 def iniciar_triforce_daemon():
     print("Iniciando TRIFORCE daemon...")
     proc = _spawn(
@@ -591,6 +621,11 @@ def cmd_start():
     else:
         iniciar_itch_monitor()
 
+    if _boss_rodando():
+        print(f"Boss notify já rodando (PID {_ler_pid(BOSS_PID)}).")
+    else:
+        iniciar_boss_notify()
+
 
 def cmd_restart(limpar: bool = True):
     """Para tudo, opcionalmente limpa memória, reinicia."""
@@ -602,6 +637,7 @@ def cmd_restart(limpar: bool = True):
     parar_majora()
     parar_mastersword()
     parar_itch_monitor()
+    parar_boss_notify()
     parar_proxy()
     time.sleep(1)
     if limpar:
@@ -615,6 +651,7 @@ def cmd_restart(limpar: bool = True):
     iniciar_majora()
     iniciar_mastersword()
     iniciar_itch_monitor()
+    iniciar_boss_notify()
     if limpar:
         _apagar_msgs_discord()
 
@@ -628,6 +665,7 @@ def cmd_stop():
     parar_majora()
     parar_mastersword()
     parar_itch_monitor()
+    parar_boss_notify()
     parar_proxy()
     print("Serviços parados.")
 
@@ -660,6 +698,9 @@ def cmd_status():
 
     itch_ok = _itch_monitor_rodando()
     print(f"itch-monitor: {'● rodando' if itch_ok else '○ parado'}")
+
+    boss_ok = _boss_rodando()
+    print(f"Boss notify:  {'● rodando' if boss_ok else '○ parado'}")
 
     try:
         linhas = SUP_LOG.read_text(encoding="utf-8", errors="replace").strip().splitlines()
