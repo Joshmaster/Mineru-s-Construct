@@ -56,6 +56,12 @@ def upcoming_bosses(now_ms: int, qty: int = 4) -> list[int]:
 def fmt_time(ts_ms: int) -> str:
     return datetime.datetime.fromtimestamp(ts_ms / 1000, tz=TZ).strftime("%d/%m %H:%M")
 
+def fmt_date(ts_ms: int) -> str:
+    return datetime.datetime.fromtimestamp(ts_ms / 1000, tz=TZ).strftime("%d/%m")
+
+def fmt_hour(ts_ms: int) -> str:
+    return datetime.datetime.fromtimestamp(ts_ms / 1000, tz=TZ).strftime("%H:%M")
+
 def fmt_countdown(ms: int) -> str:
     if ms <= 0: return "AGORA"
     s = ms // 1000
@@ -174,10 +180,9 @@ def render_boss_card(warning: bool = False) -> str:
     # Fontes
     f_title    = _font(54)
     f_subtitle = _font(22)
-    f_big      = _font(100)
+    f_big      = _font(130)
+    f_date     = _font(48)
     f_label    = _font(20)
-    f_time     = _font(38)
-    f_item     = _font(28)
     f_small    = _font(20)
 
     GOLD  = (200, 160, 20, 255)
@@ -195,20 +200,25 @@ def render_boss_card(warning: bool = False) -> str:
 
     _draw_sep(draw, 175)
 
-    # Status / countdown
+    # Data em cima, hora grande abaixo, countdown menor
+    boss_date_str = fmt_date(next_ms)  # ex: "17/05"
+    boss_hour_str = fmt_hour(next_ms)  # ex: "01:30"
     if is_active:
-        _text_center(draw, 195, "[ BOSS ATIVO AGORA ]", f_subtitle, RED)
+        _text_center(draw, 192, "[ BOSS ATIVO AGORA ]", f_subtitle, RED)
+        _text_center(draw, 225, boss_date_str, f_date, RED, (60, 0, 0))
+        _text_center(draw, 278, boss_hour_str, f_big, RED, (60, 0, 0))
         remaining = BOSS_DURATION_MIN * 60_000 + ms_left
-        _text_center(draw, 240, fmt_countdown(remaining), f_big, RED, (60, 0, 0))
-        _text_center(draw, 360, "Encerra em", f_label, GRAY)
+        _text_center(draw, 430, f"Encerra em  {fmt_countdown(remaining)}", f_label, GRAY)
     elif warning:
-        _text_center(draw, 195, "!! PREPARE-SE - BOSS EM BREVE !!", f_subtitle, RED)
-        _text_center(draw, 240, fmt_countdown(ms_left), f_big, RED, (60, 0, 0))
-        _text_center(draw, 360, f"Aparece às  {fmt_time(next_ms)}", f_label, GOLD)
+        _text_center(draw, 192, "!! PREPARE-SE - BOSS EM BREVE !!", f_subtitle, RED)
+        _text_center(draw, 225, boss_date_str, f_date, RED, (60, 0, 0))
+        _text_center(draw, 278, boss_hour_str, f_big, RED, (60, 0, 0))
+        _text_center(draw, 430, f"Em  {fmt_countdown(ms_left)}", f_label, GOLD)
     else:
-        _text_center(draw, 200, "Próximo boss em", f_label, GRAY)
-        _text_center(draw, 240, fmt_countdown(ms_left), f_big, GOLD, (40, 0, 0))
-        _text_center(draw, 360, fmt_time(next_ms), f_time, WHITE)
+        _text_center(draw, 192, "Proximo boss", f_label, GRAY)
+        _text_center(draw, 225, boss_date_str, f_date, GOLD, (40, 0, 0))
+        _text_center(draw, 278, boss_hour_str, f_big, GOLD, (40, 0, 0))
+        _text_center(draw, 430, f"Em  {fmt_countdown(ms_left)}", f_label, WHITE)
 
     # Rodapé
     _text_center(draw, H - 65, f"Intervalo: {INTERVAL_MIN}min  |  Aviso: {REMINDER_MIN}min antes", f_small, (190, 150, 80, 255))
