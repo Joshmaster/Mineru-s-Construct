@@ -268,13 +268,26 @@ _SW_FLAVOR = [
 #  [935–1080] Footer        — separador, quote Star Wars
 # ─────────────────────────────────────────────────────────────────────────────
 
+_IMG_TAG_RE = re.compile(r"^\[IMG:\s*(.+?)\]\n?", re.IGNORECASE)
+
+
+def _extract_img_prompt(text: str) -> tuple[str, str | None]:
+    """Remove [IMG: prompt] da primeira linha do texto. Retorna (texto_limpo, prompt|None)."""
+    m = _IMG_TAG_RE.match(text or "")
+    if m:
+        return text[m.end():].strip(), m.group(1).strip()
+    return text, None
+
+
 async def render_starwars_card(reminder: dict) -> str:
-    """Cinematic Star Wars medication card. Returns PNG path."""
+    """Cinematic card with AI background. Returns PNG path."""
     OUT_DIR.mkdir(parents=True, exist_ok=True)
 
     rid        = int(reminder.get("id") or 0)
     time_label = _time_from_reminder(reminder)
-    meds       = _medication_lines(str(reminder.get("text") or ""))
+    raw_text   = str(reminder.get("text") or "")
+    clean_text, custom_prompt = _extract_img_prompt(raw_text)
+    meds       = _medication_lines(clean_text)
     n          = len(meds)
     seed       = random.randint(1, 99999)
 
@@ -293,7 +306,7 @@ async def render_starwars_card(reminder: dict) -> str:
     tx, ty = (1080 - tw) // 2, 205
 
     # ── Background via Cloudflare Worker (flux-schnell) ────────────────────────
-    prompt = random.choice(_SW_PROMPTS)
+    prompt = custom_prompt if custom_prompt else random.choice(_SW_PROMPTS)
     try:
         from hyrule_env import CF_WORKER_IMG_URL as _worker_url
     except ImportError:
