@@ -68,6 +68,16 @@ def _ler_e_limpar() -> list:
         return []
 
 
+def _reenfileirar(item: dict):
+    try:
+        itens = json.loads(QUEUE_FILE.read_text(encoding="utf-8")) if QUEUE_FILE.exists() else []
+        if not isinstance(itens, list):
+            itens = []
+    except Exception:
+        itens = []
+    QUEUE_FILE.write_text(json.dumps([item, *itens], ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def _pid_ativo(pid: int) -> bool:
     try:
         os.kill(pid, 0)
@@ -263,7 +273,8 @@ def _processar(item: dict):
         return
 
     if not _adquirir_lock():
-        _enviar(usuario, "MASTERSWORD ja esta processando outro pedido. Segura esse por um instante.", canal)
+        _reenfileirar(item)
+        print("MASTERSWORD ocupada; pedido mantido na fila.", flush=True)
         return
 
     print(f"MASTERSWORD processando: {pedido[:80]}", flush=True)
@@ -281,6 +292,8 @@ if __name__ == "__main__":
     print(f"🗡️ MASTERSWORD watcher iniciado. Monitorando {QUEUE_FILE}", flush=True)
     while True:
         time.sleep(POLL_SECS)
+        if LOCK_FILE.exists() and not _lock_stale():
+            continue
         itens = _ler_e_limpar()
         for item in itens:
             try:

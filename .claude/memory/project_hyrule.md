@@ -195,6 +195,16 @@ Fluxo de 3 níveis testado e validado:
 - LLM gerava drive letter errado (A:\, D:\ em vez de C:\) — _tentar_caminho() corrige automaticamente
 - LLM "traduzia" nomes de pastas (pyton → Python) — solução global: nav_state salva conteúdo real da pasta, bot injeta no prompt com regra CRITICA de usar nomes exatos
 
+## Mudanças sessão 2026-05-17 — card de rotina de remédios
+
+- `link-bot/bot/core/reminder_art.py` agora tem `render_medication_schedule_card(reminders)`, um card PNG estilo Star Wars/Hora do Remédio para listar a rotina completa do dia.
+- O card usa lembretes recorrentes ativos do SQLite, ordena por horário (`recurrence daily HH:MM` ou `trigger_at`) e renderiza remédios/doses por bloco.
+- `link-bot/bot/skills/lembrete.py` tem a skill `remedios_card`.
+- Gatilhos aceitos: `!remedios`, `card dos remedios`, `horarios dos remedios`, `horarios do remedio`, `rotina de remedios`, `todos os remedios`.
+- A skill envia imagem com legenda curta `Rotina de remedios`; OWNER pediu card/imagem sem textão.
+- `zelda_milkshake_reminder.py` removido: era one-shot de 17/05/2026 14:00, ja disparado e desativado.
+- Watchers MAJORA/MASTERSWORD agora preservam item de fila quando lock esta ativo, evitando perda de pedido em corrida.
+
 ## Navegação de pastas — arquitetura (2026-04-16)
 - `_salvar_nav_state(usuario, pasta)` salva `{"pasta": str, "itens": [nomes reais]}` em `nav_state.json`
 - `_carregar_nav_state(autor)` em link_discord.py injeta pasta + itens no prompt do LLM

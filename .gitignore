@@ -55,11 +55,13 @@ token_usage.log
 .majora_processing.lock
 .mastersword_pid
 .mastersword_processing.lock
+.boss_notify_pid
 .proxy_pid
 .bot_pid
 .discord_pid
 .whatsapp_pid
 .itch_monitor_pid
+.claude/scheduled_tasks.lock
 itch_state.json
 DISCORD/.bot_pid
 DISCORD/.supervisor_pid

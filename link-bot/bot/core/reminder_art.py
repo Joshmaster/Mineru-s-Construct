@@ -468,3 +468,150 @@ def plain_reminder_text(reminder: dict) -> str:
     time_label = _time_from_reminder(reminder)
     text = str(reminder.get("text") or "").strip()
     return f"Lembrete das {time_label}: {text}"
+
+
+def _schedule_time_key(reminder: dict) -> tuple[int, int, str]:
+    label = _time_from_reminder(reminder)
+    try:
+        hh, mm = [int(x) for x in label.split(":", 1)]
+        return hh, mm, label
+    except Exception:
+        return 99, 99, label
+
+
+def medication_schedule_items(reminders: list[dict]) -> list[tuple[str, list[tuple[str, str, tuple]]]]:
+    items: list[tuple[str, list[tuple[str, str, tuple]]]] = []
+    for reminder in sorted(reminders, key=_schedule_time_key):
+        text = str(reminder.get("text") or "")
+        meds = _medication_lines(text)
+        if not meds or not any(color != SW_GRAY for _, _, color in meds):
+            continue
+        items.append((_time_from_reminder(reminder), meds))
+    return items
+
+
+def medication_schedule_caption(reminders: list[dict]) -> str:
+    items = medication_schedule_items(reminders)
+    lines = ["*Rotina de remédios*"]
+    for time_label, meds in items:
+        med_line = "; ".join(
+            f"{name}: {dose}" if dose else name
+            for name, dose, _ in meds
+        )
+        lines.append(f"- {time_label} - {med_line}")
+    return "\n".join(lines)
+
+
+def render_medication_schedule_card(reminders: list[dict]) -> str:
+    """Create a Star-Wars-style routine card with all medication times."""
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    items = medication_schedule_items(reminders)
+    seed = random.randint(1, 99999)
+
+    W, H = 1080, 1520
+    img = Image.new("RGBA", (W, H), SW_DARK + (255,))
+    draw = ImageDraw.Draw(img)
+
+    for y in range(H):
+        ratio = y / H
+        draw.line(
+            [(0, y), (W, y)],
+            fill=(
+                int(0 + ratio * 5),
+                int(4 + ratio * 12),
+                int(18 + ratio * 34),
+                255,
+            ),
+        )
+    for _ in range(430):
+        sx, sy = random.randint(0, W - 1), random.randint(0, H - 1)
+        br = random.randint(90, 240)
+        r = random.randint(1, 2)
+        draw.ellipse((sx, sy, sx + r, sy + r), fill=(br, br, br, 180))
+
+    top_glow = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    gd = ImageDraw.Draw(top_glow)
+    gd.ellipse((-230, -230, 520, 520), fill=(0, 210, 232, 46))
+    gd.ellipse((720, 900, 1350, 1530), fill=(255, 232, 26, 28))
+    img = Image.alpha_composite(img, top_glow.filter(ImageFilter.GaussianBlur(radius=46)))
+    draw = ImageDraw.Draw(img)
+
+    f_title = _font(FONT_ORBITRON, 48)
+    f_sub = _font(FONT_ORBITRON, 25)
+    f_time = _font(FONT_ORBITRON, 48)
+    f_med = _font(FONT_ORBITRON, 27)
+    f_dose = _font(FONT_ORBITRON, 23)
+    f_small = _font(FONT_ORBITRON, 20)
+
+    draw.text((80, 48), "ROTINA DE REMÉDIOS", fill=SW_GOLD, font=f_title,
+              stroke_width=3, stroke_fill=(0, 0, 0))
+    subtitle = "TODOS OS HORÁRIOS"
+    sw = int(draw.textlength(subtitle, font=f_sub))
+    draw.text((W - 80 - sw, 66), subtitle, fill=SW_CYAN, font=f_sub,
+              stroke_width=1, stroke_fill=(0, 0, 0))
+    draw.line([(58, 130), (1022, 130)], fill=SW_GOLD, width=2)
+    for x in range(58, 1023, 46):
+        draw.line([(x, 126), (x, 134)], fill=SW_GOLD, width=1)
+
+    if not items:
+        msg = "Nenhuma rotina de remédio ativa."
+        mw = int(draw.textlength(msg, font=f_time))
+        draw.text(((W - mw) // 2, H // 2 - 30), msg, fill=SW_GRAY, font=f_time)
+    else:
+        gap = 16
+        top = 172
+        y = top
+
+        for time_label, meds in items:
+            row_h = max(112, 48 + min(len(meds), 7) * 31)
+            colors = [color for _, _, color in meds if color != SW_GRAY]
+            accent = colors[0] if colors else SW_CYAN
+            card = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+            cd = ImageDraw.Draw(card)
+            cd.rounded_rectangle(
+                (64, y, 1016, y + row_h),
+                radius=16,
+                fill=(3, 10, 32, 220),
+                outline=(*accent, 230),
+                width=2,
+            )
+            img = Image.alpha_composite(img, card)
+            draw = ImageDraw.Draw(img)
+
+            draw.rounded_rectangle((88, y + 22, 252, y + row_h - 22),
+                                   radius=14, fill=(0, 0, 0, 165),
+                                   outline=SW_GOLD, width=2)
+            tw = int(draw.textlength(time_label, font=f_time))
+            draw.text((88 + (164 - tw) // 2, y + (row_h - 48) // 2 - 4),
+                      time_label, fill=SW_GOLD, font=f_time,
+                      stroke_width=3, stroke_fill=(0, 0, 0))
+
+            med_y = y + 18
+            col_x = 286
+            line_h = max(30, min(35, (row_h - 30) // max(1, len(meds))))
+            for idx, (name, dose, color) in enumerate(meds[:7]):
+                yy = med_y + idx * line_h
+                dot_r = 7
+                draw.ellipse((col_x, yy + 8, col_x + dot_r * 2, yy + 8 + dot_r * 2),
+                             fill=color)
+                label = name
+                draw.text((col_x + 26, yy), label, fill=SW_WHITE, font=f_med,
+                          stroke_width=2, stroke_fill=(0, 0, 0))
+                if dose:
+                    dw = int(draw.textlength(dose, font=f_dose))
+                    draw.text((980 - dw, yy + 2), dose, fill=color, font=f_dose,
+                              stroke_width=2, stroke_fill=(0, 0, 0))
+
+            y += row_h + gap
+
+    footer = "confere a rotina antes de marcar como tomado"
+    fw = int(draw.textlength(footer, font=f_small))
+    draw.line([(58, H - 78), (1022, H - 78)], fill=SW_GOLD, width=2)
+    draw.text(((W - fw) // 2, H - 54), footer, fill=SW_GRAY, font=f_small,
+              stroke_width=1, stroke_fill=(0, 0, 0))
+    draw.rectangle((0, 0, W - 1, H - 1), outline=SW_GOLD, width=6)
+    _sw_brackets(draw, 22, 22, W - 22, H - 22, size=50, color=SW_GOLD, w=4)
+
+    path = OUT_DIR / f"sw_med_schedule_{seed}.png"
+    img.convert("RGB").save(path, "PNG", optimize=True)
+    return str(path)

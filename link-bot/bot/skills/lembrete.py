@@ -10,6 +10,10 @@ import re
 import time as _time
 from bot.core.router import Skill
 from bot.core.context import MessageContext
+from bot.core.reminder_art import (
+    medication_schedule_caption,
+    render_medication_schedule_card,
+)
 from bot.core.timeparse import (
     parse_time_expression, format_timestamp, humanize_recurrence
 )
@@ -136,6 +140,22 @@ async def _cancelar(ctx: MessageContext, args: str):
         await ctx.reply(f"🌀 Não achei pergaminho #{rid} pra destruir.")
 
 
+async def _card_remedios(ctx: MessageContext):
+    sender = str(ctx.sender_jid).split("@")[0]
+    reminders = [
+        r for r in ctx.storage.reminder_list(sender)
+        if r.get("recurrence")
+    ]
+    caption = medication_schedule_caption(reminders)
+    if caption.strip() == "*Rotina de remédios*":
+        await ctx.reply("não achei rotina de remédios ativa")
+        return
+
+    await ctx.typing()
+    path = render_medication_schedule_card(reminders)
+    await ctx.send_image(path, caption="Rotina de remédios")
+
+
 # ============ Handlers de cada trigger ============
 
 async def handle_criar(ctx: MessageContext):
@@ -150,8 +170,28 @@ async def handle_cancelar(ctx: MessageContext):
     await _cancelar(ctx, ctx.args_text)
 
 
+async def handle_card_remedios(ctx: MessageContext):
+    await _card_remedios(ctx)
+
+
 # Exporta múltiplas skills (uma por ação)
 SKILLS = [
+    Skill(
+        name="remedios_card",
+        description="*card dos remédios* — quadro com todos os horários",
+        triggers=[
+            "!remedios", "!remédios", "card remedios", "card remédios",
+            "card dos remedios", "card dos remédios", "horarios dos remedios",
+            "horários dos remédios", "rotina de remedios", "rotina de remédios",
+            "todos os remedios", "todos os remédios", "horarios do remedio",
+            "horários do remédio", "horario do remedio", "horário do remédio",
+            "horarios remedio", "horários remédio", "remedio horarios",
+            "remédio horários",
+        ],
+        handler=handle_card_remedios,
+        category="lembretes",
+        priority=12,
+    ),
     Skill(
         name="lembrete_criar",
         description="*me lembra <quando> de <o que>* — marcar pergaminho",
