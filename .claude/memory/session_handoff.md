@@ -6,17 +6,24 @@ type: project
 
 ## Recado para a proxima camada/agente
 
-Sessao atualizada em 2026-05-18.
+Sessao atualizada em 2026-05-18 (segunda parte).
 
 ### Feito nesta sessao
 
-**Pesquisa de plataformas externas de imagem IA (esta sessao):**
-- Google Gemini API testada — billing exige R$200 pre-pago; descartada.
-- Testadas outras plataformas gratuitas — nenhuma superou o Cloudflare Workers AI.
-- Comparativo feito com 2 prompts (Diablo 4 e Zelda/Master Sword).
+**Pesquisa de plataformas externas de imagem IA:**
+- Google Gemini API — billing exige R$200 pre-pago; descartada.
+- HuggingFace, fal.ai — requerem credito/pagamento para uso real.
+- Comparativo feito com 2 prompts — Cloudflare Flux Schnell venceu ambos.
 
-**Resultado final do comparativo:**
-- **Cloudflare Workers AI Flux Schnell continua imbativel** — ganhou nas duas rodadas.
+**Investigacao mage.space (engenharia reversa da API privada Next.js):**
+- Auth resolvida: createUserSession (hash 40f8302e...) → cookie __session → runArchitecture (hash 407ca2a0...) funciona.
+- Conclusao: mage.space NAO tem tier gratuito para geracao. Todos os modelos requerem no minimo plano Basic pago.
+  - sdxl, flux → 4261 (Basic requerido)
+  - mango, hidream → 4262 (Pro requerido)
+- Pesquisa encerrada: nao ha alternativa gratuita melhor que o CF atual.
+
+**Resultado final:**
+- **Cloudflare Workers AI Flux Schnell continua imbativel** como unica opcao gratuita de qualidade.
 - Nenhuma alteracao feita no codigo — Flux Schnell permanece padrao em `world_boss_card.py`.
 
 ### Regra importante gravada
@@ -29,10 +36,9 @@ Boss Mundial/Diablo:
 
 ### Estado dos servicos
 
-- Todos os servicos rodando no inicio da sessao (validado 2026-05-17).
-- Git com M em session_handoff.md — precisa commitar.
+- Todos os servicos rodando (validado 2026-05-17).
 
 ### Pendencias / atencao
 
-- Nao alterar modelo de imagem em `world_boss_card.py` sem testar — Flux Schnell CF e o padrao validado em 2 rodadas.
-- Pesquisa de plataformas externas concluida: nao ha alternativa gratuita melhor que o CF atual sem ativar billing.
+- Nao alterar modelo de imagem em `world_boss_card.py` sem testar — Flux Schnell CF e o padrao validado.
+- Pesquisa de plataformas externas concluida definitivamente: nao ha alternativa gratuita.
