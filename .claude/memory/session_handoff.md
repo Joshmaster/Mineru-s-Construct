@@ -6,25 +6,18 @@ type: project
 
 ## Recado para a proxima camada/agente
 
-Sessao atualizada em 2026-05-17.
+Sessao atualizada em 2026-05-18.
 
 ### Feito nesta sessao
 
-**Card Boss Mundial / Diablo corrigido:**
-- `world_boss_card.py`
-  - Removido countdown/tempo relativo do card (`Em 00:xx`, `Encerra em`, etc.).
-  - Card agora mostra data/dia do boss e hora grande do boss.
-  - Rodape mostra `Boss Mundial - DD/MM as HH:MM`.
-  - `get_next_boss()` agora respeita janela ativa de 15 min: durante a janela mostra o boss atual; depois avanca para o proximo.
-- `world_boss_notify.py`
-  - Continua disparando o aviso 5 min antes (`REMINDER_MIN = 5`).
-  - Legenda nao menciona "em 5 minutos"; usa `Boss Mundial - DD/MM as HH:MM`.
-  - Envio travado para Discord only (`localhost:7331/send-file`); se mudar para outro endpoint, o script falha.
-- `WorldBossReminder.tsx`
-  - Removido countdown da tela.
-  - Proximos bosses mostram apenas data/hora, sem `+Xh` nem contador.
-- Criada memoria permanente `.claude/memory/feedback_world_boss_card.md`.
-- `project_hyrule.md` e `MEMORY.md` atualizados com a regra do card.
+**Pesquisa de plataformas externas de imagem IA (esta sessao):**
+- Google Gemini API testada — billing exige R$200 pre-pago; descartada.
+- Testadas outras plataformas gratuitas — nenhuma superou o Cloudflare Workers AI.
+- Comparativo feito com 2 prompts (Diablo 4 e Zelda/Master Sword).
+
+**Resultado final do comparativo:**
+- **Cloudflare Workers AI Flux Schnell continua imbativel** — ganhou nas duas rodadas.
+- Nenhuma alteracao feita no codigo — Flux Schnell permanece padrao em `world_boss_card.py`.
 
 ### Regra importante gravada
 
@@ -34,36 +27,12 @@ Boss Mundial/Diablo:
 - card e legenda mostram horario real por dia/hora;
 - nao mostrar countdown, "faltam X minutos", "em 5 minutos" ou "encerra em".
 
-### Validacoes feitas
-
-- `python3 -m py_compile world_boss_card.py world_boss_notify.py`
-- Testes de borda do calculo:
-  - `17/05 18:59 -> 17/05 19:00`
-  - `17/05 19:00 -> 17/05 19:00`
-  - `17/05 19:10 -> 17/05 19:00`
-  - `17/05 19:15 -> 17/05 22:30`
-  - `17/05 22:00 -> 17/05 22:30`
-  - `17/05 22:40 -> 17/05 22:30`
-  - `17/05 22:46 -> 18/05 02:00`
-- `git diff --check`
-- Busca confirmou que `Boss Mundial`/`boss_card` nao aparece em fluxo do WhatsApp; apenas `world_boss_notify.py` e log local.
-
 ### Estado dos servicos
 
-Validado com `python3 startup_services.py status`:
-- Hyrule Proxy: rodando
-- Discord bot: online
-- Supervisor: rodando
-- WA Bridge: rodando na porta 7334
-- WhatsApp bot: rodando
-- TRIFORCE daemon: rodando
-- MAJORA watcher: rodando
-- MASTERSWORD watcher: rodando
-- itch-monitor: rodando
-- Boss notify: rodando, reiniciado apos a mudanca
-- FFmpeg: instalado
+- Todos os servicos rodando no inicio da sessao (validado 2026-05-17).
+- Git com M em session_handoff.md — precisa commitar.
 
 ### Pendencias / atencao
 
-- As alteracoes foram preparadas para commit/push pela Regra 0.1.
-- Se mexer no card de Boss Mundial no futuro, seguir `.claude/memory/feedback_world_boss_card.md`.
+- Nao alterar modelo de imagem em `world_boss_card.py` sem testar — Flux Schnell CF e o padrao validado em 2 rodadas.
+- Pesquisa de plataformas externas concluida: nao ha alternativa gratuita melhor que o CF atual sem ativar billing.
