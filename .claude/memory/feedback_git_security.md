@@ -35,6 +35,12 @@ Exemplos para perguntar:
 
 Nao precisa perguntar para itens obviamente sensiveis: tokens, sessoes, bancos, QR, logs, numeros reais, JIDs/LIDs, codigos de acesso e URLs assinadas. Esses devem ser removidos/sanitizados direto antes de commit/push.
 
+## INCIDENTE — 2026-05-18
+
+Token HuggingFace (`hf_...`) foi commitado dentro de `session_handoff.md` porque foi colocado no texto do handoff junto com as notas de sessao. GitHub bloqueou o push. Corrigido com `git commit --amend`.
+
+**Licao:** qualquer chave/token que aparecer na conversa **NUNCA** vai pro handoff nem pra memoria — nem como exemplo, nem com "somente local". Se precisar registrar que um token existe, escrever apenas "token configurado localmente" sem o valor.
+
 ## Estado conhecido
 
 Na ultima limpeza, o historico foi sanitizado e validado com resultado zero para:
