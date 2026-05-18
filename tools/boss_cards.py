@@ -234,8 +234,8 @@ def bg_from_deevid_browser(prompt: str) -> Image.Image | None:
                 page.keyboard.press("Enter")
                 print("  DeeVid browser: Enter fallback")
 
-            # Aguarda imagem nova aparecer no DOM (max 90s)
-            deadline = time.time() + 90
+            # Aguarda imagem nova aparecer no DOM (max 75s)
+            deadline = time.time() + 75
             new_url = None
             while time.time() < deadline:
                 time.sleep(4)
@@ -250,7 +250,7 @@ def bg_from_deevid_browser(prompt: str) -> Image.Image | None:
                         break
                 if new_url:
                     break
-                elapsed = int(time.time() - (deadline - 90))
+                elapsed = int(time.time() - (deadline - 75))
                 print(f"  DeeVid browser: aguardando imagem... {elapsed}s")
 
             browser.close()
@@ -412,16 +412,22 @@ def render_card(boss_ms: int, bg: Image.Image, is_active: bool = False, ai_sourc
 # ─── Main ─────────────────────────────────────────────────────────────────────
 
 def _bg_with_fallback(prompt: str, recraft_token: str | None) -> tuple[Image.Image | None, str]:
-    """Tenta Recraft → CF Flux. DeeVid desabilitado (account bloqueada por tasks FAIL)."""
-    # 1. Recraft (30 créditos/dia)
+    """Tenta DeeVid (browser) → Recraft → CF Flux."""
+    # 1. DeeVid via Chrome visível (nova conta = slate limpo)
+    print("  [1] Tentando DeeVid browser...")
+    bg = bg_from_deevid_browser(prompt)
+    if bg:
+        return bg, "DeeVid"
+
+    # 2. Recraft (30 créditos/dia)
     if recraft_token:
-        print("  [1] Tentando Recraft...")
+        print("  [2] Tentando Recraft...")
         bg = bg_from_recraft(prompt, recraft_token)
         if bg:
             return bg, "Recraft"
 
-    # 2. CF Flux Schnell (ilimitado)
-    print("  [2] Usando CF Flux Schnell...")
+    # 3. CF Flux Schnell (ilimitado)
+    print("  [3] Usando CF Flux Schnell...")
     bg = bg_from_cf(prompt)
     return bg, "CF Flux"
 
