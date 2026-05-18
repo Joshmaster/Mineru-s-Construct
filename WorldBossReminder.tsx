@@ -14,23 +14,11 @@ const durationMs = BOSS_DURATION_MIN * 60_000;
 // ── Lógica pura ───────────────────────────────────────────────────────────────
 function getNextBoss(now: number): number {
   const elapsed        = now - anchorMs;
-  const intervalsPassed = Math.ceil(elapsed / intervalMs);
+  let intervalsPassed = Math.floor(elapsed / intervalMs);
+  const current = anchorMs + intervalsPassed * intervalMs;
+  if (now < current + durationMs) return current;
+  intervalsPassed += 1;
   return anchorMs + intervalsPassed * intervalMs;
-}
-
-function getReminderTime(bossTime: number): number {
-  return bossTime - reminderMs;
-}
-
-function formatCountdown(ms: number): string {
-  if (ms <= 0) return "00:00";
-  const s  = Math.floor(ms / 1000);
-  const h  = Math.floor(s / 3600);
-  const m  = Math.floor((s % 3600) / 60);
-  const ss = s % 60;
-  if (h > 0)
-    return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
-  return `${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
 }
 
 function generateUpcomingBosses(now: number, qty: number): number[] {
@@ -49,14 +37,6 @@ function formatBossTime(ts: number): string {
     weekday: "short",
     day: "2-digit",
     month: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatShort(ts: number): string {
-  return new Date(ts).toLocaleString("pt-BR", {
-    timeZone: "America/Sao_Paulo",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -141,7 +121,6 @@ export default function WorldBossReminder() {
 
   const nextBoss   = getNextBoss(now);
   const msToNext   = nextBoss - now;
-  const msToRemind = getReminderTime(nextBoss) - now;
   const upcoming   = generateUpcomingBosses(now, 5);
 
   const isWarning  = msToNext > 0 && msToNext <= reminderMs;
@@ -153,8 +132,8 @@ export default function WorldBossReminder() {
       setAlertedBoss(nextBoss);
       playBeep();
       if (notifPerm === "granted") {
-        new Notification("⚔️ Boss Mundial em 5 minutos!", {
-          body: `Aparece às ${formatShort(nextBoss)} — prepare-se!`,
+        new Notification("⚔️ Boss Mundial", {
+          body: `Aparece em ${formatBossTime(nextBoss)}`,
           icon: undefined,
         });
       }
@@ -195,20 +174,6 @@ export default function WorldBossReminder() {
     textTransform: "uppercase",
     textAlign: "center",
     marginBottom: 4,
-  };
-
-  const countdownStyle: React.CSSProperties = {
-    color: isWarning || isActive ? "#ff3020" : "#e8c060",
-    fontSize: isWarning || isActive ? 56 : 48,
-    fontWeight: "bold",
-    textAlign: "center",
-    letterSpacing: 4,
-    textShadow: isWarning || isActive
-      ? "0 0 20px rgba(255,50,0,0.9), 0 0 40px rgba(200,0,0,0.6)"
-      : GLOW_GOLD,
-    lineHeight: 1,
-    transition: "all 0.3s ease",
-    fontFamily: "monospace",
   };
 
   const labelStyle: React.CSSProperties = {
@@ -282,12 +247,9 @@ export default function WorldBossReminder() {
           </div>
         )}
 
-        {/* Countdown */}
+        {/* Proximo boss */}
         <div style={{ margin: "16px 0 8px" }}>
-          <p style={labelStyle}>{isActive ? "Encerra em" : "Próximo boss em"}</p>
-          <p style={countdownStyle}>
-            {isActive ? formatCountdown(durationMs + (msToNext)) : formatCountdown(msToNext)}
-          </p>
+          <p style={labelStyle}>{isActive ? "Boss ativo" : "Próximo boss"}</p>
           <p style={nextTimeStyle}>{formatBossTime(nextBoss)}</p>
         </div>
 
@@ -313,9 +275,6 @@ export default function WorldBossReminder() {
             }}>
               <span style={{ color: i === 0 ? "#e09040" : "rgba(160,110,50,0.7)", fontSize: 13 }}>
                 {i === 0 ? "▶ " : `${i + 1}. `}{formatBossTime(ts)}
-              </span>
-              <span style={{ color: "rgba(140,100,40,0.6)", fontSize: 11 }}>
-                {i === 0 ? formatCountdown(ts - now) : `+${(i * INTERVAL_MIN / 60).toFixed(1)}h`}
               </span>
             </div>
           ))}
@@ -349,7 +308,7 @@ export default function WorldBossReminder() {
             </p>
           )}
           <p style={{ color: "rgba(100,60,40,0.5)", fontSize: 10, marginTop: 6, letterSpacing: 1 }}>
-            Intervalo: {INTERVAL_MIN}min · Aviso: {REMINDER_MIN}min antes · Duração: {BOSS_DURATION_MIN}min
+            Horário do boss exibido por dia e hora
           </p>
         </div>
 

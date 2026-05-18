@@ -1,4 +1,4 @@
-"""Daemon: envia card Boss Mundial no Discord 5min antes de cada spawn."""
+"""Daemon: envia card Boss Mundial no Discord antes de cada spawn."""
 import datetime, json, math, time, urllib.request
 from zoneinfo import ZoneInfo
 from world_boss_card import render_boss_card, get_next_boss, intervalMs, REMINDER_MIN
@@ -8,6 +8,9 @@ reminderMs = REMINDER_MIN * 60 * 1000
 TZ           = ZoneInfo("America/Sao_Paulo")
 DISCORD_API  = "http://localhost:7331"
 TARGETS      = ["josh_barbosa", "manu"]
+
+if ":7331" not in DISCORD_API:
+    raise RuntimeError("Boss Mundial deve enviar somente pelo Discord (:7331).")
 
 
 def _next_boss_ms() -> int:
@@ -40,14 +43,14 @@ def main():
         remind_ms = next_ms - reminderMs
         ms_left  = next_ms - now_ms
 
-        # Dispara aviso 5 min antes (janela de 30s pra não perder o tick)
+        # Dispara aviso na janela configurada antes do boss.
         if remind_ms <= now_ms < remind_ms + 30_000 and next_ms not in alerted:
             alerted.add(next_ms)
             boss_time = datetime.datetime.fromtimestamp(next_ms / 1000, tz=TZ).strftime("%d/%m às %H:%M")
-            log(f"Aviso boss em 5min — {boss_time}")
+            log(f"Aviso boss - {boss_time}")
             try:
                 path = render_boss_card(warning=True)
-                caption = f"Boss Mundial em 5 minutos! — {boss_time}"
+                caption = f"Boss Mundial - {boss_time}"
                 for t in TARGETS:
                     _discord_file(t, path, caption)
             except Exception as e:

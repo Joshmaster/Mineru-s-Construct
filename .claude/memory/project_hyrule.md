@@ -224,6 +224,14 @@ Fluxo de 3 níveis testado e validado:
 - Classificador LLM (`link-bot/bot/core/llm.py`) ganhou regras e exemplos para evitar confundir imagem com musica/download.
 - Busca de imagem (`bot_supervisor.py`) ganhou fallback `zeldawiki.wiki` para artes oficiais, especialmente `Link Master Sword`.
 
+## Mudanças sessão 2026-05-17 — Boss Mundial Diablo
+
+- `world_boss_card.py` renderiza o card do Boss Mundial sem countdown/tempo relativo.
+- Padrao visual fixo: data/dia do boss em cima e hora grande abaixo; rodape/legenda com `Boss Mundial - DD/MM as HH:MM`.
+- `get_next_boss()` considera a janela ativa de 15 min: durante o boss mostra o horario atual; apos a janela ativa avanca para o proximo.
+- `world_boss_notify.py` continua avisando 5 min antes (`REMINDER_MIN = 5`), mas envia somente no Discord (`localhost:7331/send-file`) e nao menciona "em 5 minutos" na legenda.
+- `WorldBossReminder.tsx` tambem foi alinhado para remover countdown e mostrar apenas horario real por dia/hora.
+
 ## Navegação de pastas — arquitetura (2026-04-16)
 - `_salvar_nav_state(usuario, pasta)` salva `{"pasta": str, "itens": [nomes reais]}` em `nav_state.json`
 - `_carregar_nav_state(autor)` em link_discord.py injeta pasta + itens no prompt do LLM

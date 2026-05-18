@@ -16,4 +16,5 @@
 - [Contatos](contacts.md) — JIDs WhatsApp (@lid) e IDs Discord de Josh e Manu; grupo de remédios
 - [Performance LLM providers](feedback_llm_performance.md) — ordem Cerebras→Mistral→OpenRouter→Ollama; hard timeout via thread; timeouts por tier
 - [Roteamento natural de skills](feedback_natural_skill_routing.md) — offhand técnico: conversa natural tem prioridade; `!` é fallback/alias interno; música contextual por reply usa sentido semântico, não lista fechada
+- [Card Boss Mundial](feedback_world_boss_card.md) — aviso 5 min antes somente no Discord; card mostra dia/hora do boss, sem countdown
 - [Tailscale VPN](project_tailscale.md) — acesso SSH remoto via Tailscale; mineru (100.121.86.1) ↔ pcbrs1291411 (100.85.111.78)
